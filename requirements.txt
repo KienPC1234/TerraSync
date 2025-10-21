@@ -1,2 +1,11 @@
 streamlit
 streamlit_option_menu
+google-generativeai
+streamlit_folium
+pandas
+altair
+inference-sdk
+rasterio
+shapely
+pyproj
+torch
