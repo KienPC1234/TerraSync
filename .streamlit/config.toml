@@ -1,0 +1,8 @@
+[client]
+showSidebarNavigation = false
+
+[theme]
+primaryColor="#4caf50"                # Xanh lá chính (button, accent)
+backgroundColor="#f0f8f0"             # Nền trang tổng thể (màu xanh nhạt)
+secondaryBackgroundColor="#e8f5e8"    # Sidebar và box nền phụ
+textColor="#000000ff"                   # Màu chữ xanh lá đậm
