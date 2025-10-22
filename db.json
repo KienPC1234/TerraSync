@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "email": "kienpx@example.com",
+      "customdatauser": "updated hello",
+      "age": 30,
+      "hobbies": [
+        "reading",
+        "coding"
+      ],
+      "new_field": "added"
+    }
+  ]
+}
