@@ -9,3 +9,15 @@ rasterio
 shapely
 pyproj
 torch
+authlib
+fastapi
+uvicorn
+requests
+plotly
+folium
+opencv-python
+pillow
+numpy
+scikit-learn
+matplotlib
+seaborn

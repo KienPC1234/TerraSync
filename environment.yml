@@ -1,0 +1,31 @@
+name: ts
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - streamlit
+    - streamlit-option-menu
+    - google-generativeai
+    - streamlit-folium
+    - pandas
+    - altair
+    - inference-sdk
+    - rasterio
+    - shapely
+    - pyproj
+    - torch
+    - authlib
+    - fastapi
+    - uvicorn
+    - requests
+    - plotly
+    - folium
+    - opencv-python
+    - pillow
+    - numpy
+    - scikit-learn
+    - matplotlib
+    - seaborn

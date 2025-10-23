@@ -3,17 +3,34 @@ from streamlit_option_menu import option_menu
 import google.generativeai as genai
 import os
 from datetime import datetime
-from pages import dashboard, chat, my_fields, my_schedule, settings, help_center
+from copy import deepcopy
+
+# Import các page
 from pages.dashboard import render_dashboard
 from pages.chat import render_chat
 from pages.my_fields import render_fields
 from pages.my_schedule import render_schedule
 from pages.settings import render_settings
 from pages.help_center import render_help_center
+from pages.login import render_login, logout
+from pages.iot_management import render_iot_management
+from pages.ai_field_detection import render_ai_field_detection
+from pages.satellite_view import render_satellite_view
+from utils import (
+    SAMPLE_ALERTS,
+    SAMPLE_HISTORY,
+    SAMPLE_TELEMETRY,
+    fetch_alerts,
+    fetch_history,
+    fetch_latest_telemetry,
+    generate_schedule,
+    get_default_fields,
+    get_fields_from_db
+)
 
 
 # -----------------------------
-# ✅ Configure Gemini correctly
+# ✅ Cấu hình Gemini API
 # -----------------------------
 api_key = (
     os.getenv("GEMINI_API_KEY")
@@ -21,49 +38,176 @@ api_key = (
 )
 if not api_key:
     st.error("⚠️ Missing Gemini API key! Please set GEMINI_API_KEY or secrets.toml.")
-genai.configure(api_key=api_key)
+else:
+    genai.configure(api_key=api_key)
+
 
 # -----------------------------
-# ✅ Initialize Session States
+# ✅ Khởi tạo Session States
 # -----------------------------
 if "messages" not in st.session_state:
-    st.session_state.messages = []  # for chat history
+    st.session_state.messages = []
 
 if "show_ai" not in st.session_state:
     st.session_state.show_ai = False
 
+if "hydration_jobs" not in st.session_state:
+    st.session_state.hydration_jobs = {"completed": 0, "active": 0, "remaining": 0}
+
+if "demo_mode" not in st.session_state:
+    st.session_state.demo_mode = st.secrets.get("demo", {}).get("enabled", False)
+
+if "fields" not in st.session_state:
+    st.session_state.fields = get_fields_from_db() or get_default_fields()
 
 
-if "schedule" not in st.session_state:
+def classify_moisture(value: float) -> str:
+    if value < 25:
+        return "severely_dehydrated"
+    if value < 45:
+        return "dehydrated"
+    if value < 60:
+        return "moderate"
+    return "hydrated"
+
+
+def update_fields_from_telemetry():
+    telemetry = st.session_state.get("telemetry")
+    if not telemetry:
+        return
+    soil_nodes = telemetry.get("data", {}).get("soil_nodes", [])
+    node_lookup = {node.get("node_id"): node.get("sensors", {}) for node in soil_nodes}
+    totals = {"completed": 0, "active": 0, "remaining": 0}
+    for field in st.session_state.fields:
+        sensors = node_lookup.get(field.get("node_id"))
+        if not sensors:
+            continue
+        moisture = sensors.get("soil_moisture")
+        temperature = sensors.get("soil_temperature")
+        if moisture is not None:
+            field["live_moisture"] = round(moisture, 1)
+            status = classify_moisture(moisture)
+            field["status"] = status
+            field["status_label"] = status.replace("_", " ").title()
+            field["today_water"] = max(40, round(120 - moisture))
+            field["time_needed"] = max(1.0, round(6 - moisture / 20, 1))
+            field["progress"] = max(0, min(100, round(moisture * 1.5)))
+            bucket = {
+                "hydrated": "completed",
+                "moderate": "active",
+                "dehydrated": "active",
+                "severely_dehydrated": "remaining",
+            }.get(status)
+            if bucket:
+                totals[bucket] += 1
+        if temperature is not None:
+            field["soil_temperature"] = round(temperature, 1)
+        if "area" in field:
+            field["area_display"] = f"{field['area']:.2f} acres"
+        if field.get("today_water"):
+            liters = int(field["today_water"] * 3.785)
+            field["water_usage"] = f"{liters} liters/day"
+    if any(totals.values()):
+        st.session_state.hydration_jobs = totals
+
+
+def load_iot_snapshot(force: bool = False):
+    if st.session_state.get("demo_mode"):
+        st.session_state.telemetry = deepcopy(SAMPLE_TELEMETRY)
+        st.session_state.history = deepcopy(SAMPLE_HISTORY)
+        st.session_state.alerts = deepcopy(SAMPLE_ALERTS)
+        st.session_state.last_sync = st.session_state.telemetry.get("timestamp")
+    elif force or "telemetry" not in st.session_state:
+        st.session_state.telemetry = fetch_latest_telemetry()
+        st.session_state.history = fetch_history(limit=30)
+        st.session_state.alerts = fetch_alerts(limit=20)
+        st.session_state.last_sync = st.session_state.telemetry.get("timestamp")
+    update_fields_from_telemetry()
+    st.session_state.schedule = generate_schedule(st.session_state.get("telemetry"))
+
+
+# -----------------------------
+# ✅ Login Check (OAuth) & User Management
+# -----------------------------
+if not st.user.is_logged_in:
+    # Nếu chưa login thì hiển thị login page và dừng app
+    render_login()
+    st.stop()
+
+# Lưu user data vào database khi login
+if "user_saved" not in st.session_state:
     try:
-        from utils import generate_schedule
-        st.session_state.schedule = generate_schedule()
-    except Exception:
-        st.session_state.schedule = []
+        from database import db
+        user_data = {
+            "email": st.user.email,
+            "name": st.user.name or "",
+            "picture": getattr(st.user, 'picture', '') or ""
+        }
+        db.create_or_update_user(user_data)
+        st.session_state.user_saved = True
+    except Exception as e:
+        st.error(f"Lỗi lưu thông tin user: {e}")
+
+# -----------------------------
+# ✅ Sau khi login — main app
+# -----------------------------
+load_iot_snapshot()
+
+if st.session_state.pop("refresh_notice", None):
+    st.info("IoT data refreshed")
+
+st.success(f"Chào mừng, **{st.user.name or st.user.email}**! 🌱")
+
+# Set up periodic polling
+if "last_poll" not in st.session_state:
+    st.session_state.last_poll = datetime.now()
+
+# Check if 30 seconds have passed
+if (datetime.now() - st.session_state.last_poll).total_seconds() > 30:
+    load_iot_snapshot(force=True)
+    st.session_state.last_poll = datetime.now()
+    st.session_state.refresh_notice = True
+    st.rerun()
 
 # -----------------------------
 # ✅ Sidebar Navigation
 # -----------------------------
 with st.sidebar:
     selected = option_menu(
-        "🌱 WaterWise",
-        ["Dashboard", "My Fields", "My Schedule", "Ask Sprout AI", "Settings", "Help Center"],
-        icons=["house", "grid", "calendar","chat", "gear", "question-circle"],
+        "🌱 TerraSync",
+        ["Dashboard", "My Fields", "My Schedule", "Ask Sprout AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"],
+        icons=["house", "grid", "calendar", "chat", "wifi", "robot", "satellite", "gear", "question-circle"],
         default_index=0,
         menu_icon="psychiatry"
     )
 
+    demo_toggle = st.toggle("🎛️ Demo Mode", value=st.session_state.demo_mode)
+    if demo_toggle != st.session_state.demo_mode:
+        st.session_state.demo_mode = demo_toggle
+        load_iot_snapshot(force=True)
+        st.rerun()
+
+    st.divider()
+    if st.button("🔄 Refresh IoT Data", use_container_width=True):
+        load_iot_snapshot(force=True)
+        st.session_state.refresh_notice = True
+        st.rerun()
+
+    if st.session_state.get("last_sync"):
+        st.caption(f"Last sync: {st.session_state.last_sync}")
+    if st.button("🚪 Đăng xuất", type="secondary"):
+        logout()
+        st.rerun()
+
 
 # -----------------------------
-# ✅ Normal Navigation Pages
+# ✅ Header Section
 # -----------------------------
-
-def render_top_section(location="Paso Robles Farm", Page_Title="" ):
+def render_top_section(location="Paso Robles Farm", Page_Title=""):
     date = datetime.now()
     day = date.strftime("%A")
     formatted_date = date.strftime("%B %d, %Y")
 
-    # CSS custom
     st.markdown("""
     <style>
     .header-container {
@@ -73,13 +217,11 @@ def render_top_section(location="Paso Robles Farm", Page_Title="" ):
         padding: 12px 0;
         margin-bottom: 35px;
     }
-
     .header-title {
         font-size: 30px;
         font-weight: 600;
         color: #333;
     }
-
     .header-meta {
         display: flex;
         align-items: center;
@@ -87,13 +229,11 @@ def render_top_section(location="Paso Robles Farm", Page_Title="" ):
         color: #777;
         font-size: 20px;
     }
-
     .header-meta .divider {
         width: 1px;
         height: 20px;
         background-color: #ddd;
     }
-
     .location-pill {
         display: flex;
         align-items: center;
@@ -104,7 +244,6 @@ def render_top_section(location="Paso Robles Farm", Page_Title="" ):
         padding: 4px 10px;
         font-size: 20px;
     }
-
     .location-pill .icon {
         color: #d43f3a;
         margin-right: 6px;
@@ -113,7 +252,6 @@ def render_top_section(location="Paso Robles Farm", Page_Title="" ):
     </style>
     """, unsafe_allow_html=True)
 
-    # Header HTML
     st.markdown(f"""
     <div class="header-container">
         <div class="header-title">{Page_Title}</div>
@@ -129,8 +267,12 @@ def render_top_section(location="Paso Robles Farm", Page_Title="" ):
     </div>
     """, unsafe_allow_html=True)
 
+
+# -----------------------------
+# ✅ Điều hướng giữa các page
+# -----------------------------
 if selected == "Dashboard":
-    render_top_section(Page_Title="👋 Welcome back, Christopher")
+    render_top_section(Page_Title=f"👋 Welcome back, {st.user.name}")
     render_dashboard()
 
 elif selected == "Ask Sprout AI":
@@ -145,6 +287,15 @@ elif selected == "My Schedule":
 
 elif selected == "Settings":
     render_settings()
+
+elif selected == "IoT Management":
+    render_iot_management()
+
+elif selected == "AI Detection":
+    render_ai_field_detection()
+
+elif selected == "Satellite View":
+    render_satellite_view()
 
 elif selected == "Help Center":
     render_help_center()
