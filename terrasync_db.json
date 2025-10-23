@@ -1,8 +1,72 @@
 {
-  "users": [],
-  "fields": [],
+  "users": [
+    {
+      "email": "kienpc872009@gmail.com",
+      "name": "Hà Trí Kiên 11A5",
+      "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
+      "first_login": "2025-10-23T19:37:17.461442",
+      "last_login": "2025-10-23T20:24:32.061514",
+      "is_active": true,
+      "id": "6de2c8a0-ec63-4358-8b59-02f269fa59c4",
+      "created_at": "2025-10-23T19:37:17.461485",
+      "updated_at": "2025-10-23T20:24:32.061526",
+      "phone": "",
+      "organization": "kien",
+      "role": "Farmer",
+      "experience": "Beginner (< 1 year)",
+      "bio": ""
+    }
+  ],
   "iot_hubs": [],
   "sensors": [],
   "alerts": [],
-  "telemetry_history": []
+  "telemetry_history": [],
+  "fields": [
+    {
+      "name": "ưdwwdw",
+      "crop": "Rice",
+      "area": 1.0,
+      "lat": 20.450123,
+      "lon": 106.325678,
+      "center": [
+        20.450123,
+        106.325678
+      ],
+      "polygon": [
+        [
+          20.449623000000003,
+          106.325178
+        ],
+        [
+          20.450623,
+          106.325178
+        ],
+        [
+          20.450623,
+          106.326178
+        ],
+        [
+          20.449623000000003,
+          106.326178
+        ]
+      ],
+      "stage": "Seedling",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 82,
+      "status": "hydrated",
+      "today_water": 100,
+      "time_needed": 2,
+      "progress": 50,
+      "days_to_harvest": 60,
+      "user_email": "kienpc872009@gmail.com",
+      "id": "2dbe2af8-e398-4c75-bd3a-c59a3a03d4d9",
+      "created_at": "2025-10-23T19:48:46.008841",
+      "water_saving_mode": false,
+      "weather_adjustment": true,
+      "irrigation_frequency": "Daily",
+      "preferred_time": "Early Morning (6-8 AM)",
+      "max_duration": 4,
+      "updated_at": "2025-10-23T19:49:34.199631"
+    }
+  ]
 }

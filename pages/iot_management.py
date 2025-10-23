@@ -5,18 +5,26 @@ Quản lý thiết bị IoT, hub và cảm biến
 
 import streamlit as st
 import json
+import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 from api_placeholders import terrasync_apis
 from database import db
+from iot_api_client import get_iot_client, test_iot_connection, get_iot_data_for_user, create_sample_telemetry_data, create_sample_hub_data, create_sample_sensor_data
 
 def render_iot_management():
     """Trang quản lý thiết bị IoT"""
     st.title("🔧 IoT Device Management")
     st.markdown("Quản lý hub chính, cảm biến và kết nối RF 433MHz")
     
+    # Check IoT API connection
+    if not test_iot_connection():
+        st.error("❌ Không thể kết nối đến IoT API. Vui lòng kiểm tra server.")
+        st.info("💡 Để chạy IoT API: `cd iotAPI && ./run_api.sh`")
+        return
+    
     # Tabs cho các chức năng khác nhau
-    tab1, tab2, tab3, tab4 = st.tabs(["📡 Hub Management", "🌡️ Sensors", "📊 Real-time Data", "⚙️ Settings"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📡 Hub Management", "🌡️ Sensors", "📊 Real-time Data", "🚨 Alerts", "⚙️ Settings"])
     
     with tab1:
         render_hub_management()
@@ -28,6 +36,9 @@ def render_iot_management():
         render_realtime_data()
     
     with tab4:
+        render_alerts()
+    
+    with tab5:
         render_iot_settings()
 
 def render_hub_management():
@@ -49,27 +60,40 @@ def render_hub_management():
             rf_channel = st.selectbox("RF Channel", options=list(range(1, 11)))
         
         if st.button("🔗 Register Hub", type="primary"):
-            hub_data = {
-                "name": hub_name,
-                "location": hub_location,
-                "ip_address": hub_ip,
-                "coordinates": {"lat": hub_lat, "lon": hub_lon},
-                "rf_channel": rf_channel,
-                "user_email": st.user.email
-            }
+            # Generate unique hub ID
+            import uuid
+            hub_id = f"hub-{uuid.uuid4().hex[:8]}"
             
-            result = terrasync_apis.register_iot_hub(hub_data)
-            if result["status"] == "success":
-                # Lưu vào database
-                db.add("iot_hubs", {
-                    "hub_id": result["hub_id"],
+            # Create hub data for IoT API
+            hub_data = create_sample_hub_data(
+                hub_id=hub_id,
+                user_email=st.user.email,
+                field_id="field-001",  # Default field
+                lat=hub_lat,
+                lon=hub_lon
+            )
+            
+            # Register with IoT API
+            client = get_iot_client()
+            success = client.register_hub(hub_data)
+            
+            if success:
+                # Also save to local database
+                local_hub_data = {
+                    "hub_id": hub_id,
+                    "name": hub_name,
+                    "location": hub_location,
+                    "ip_address": hub_ip,
+                    "coordinates": {"lat": hub_lat, "lon": hub_lon},
+                    "rf_channel": rf_channel,
                     "user_email": st.user.email,
-                    **hub_data
-                })
-                st.success(f"✅ Hub registered successfully! Hub ID: {result['hub_id']}")
+                    "registered_at": datetime.now().isoformat()
+                }
+                db.add("iot_hubs", local_hub_data)
+                st.success(f"✅ Hub registered successfully! Hub ID: {hub_id}")
                 st.rerun()
             else:
-                st.error("❌ Failed to register hub")
+                st.error("❌ Failed to register hub with IoT API")
     
     # Danh sách hubs
     st.subheader("📋 Registered Hubs")
@@ -371,6 +395,68 @@ def render_iot_settings():
             db.add("iot_settings", settings)
         
         st.success("✅ Settings saved successfully!")
+
+def render_alerts():
+    """Hiển thị alerts từ IoT API"""
+    st.subheader("🚨 IoT Alerts")
+    
+    # Get alerts from IoT API
+    client = get_iot_client()
+    user_hubs = db.get("iot_hubs", {"user_email": st.user.email})
+    
+    if not user_hubs:
+        st.warning("No hubs registered. Please register a hub first.")
+        return
+    
+    # Get alerts for all user hubs
+    all_alerts = []
+    for hub in user_hubs:
+        hub_id = hub.get("hub_id")
+        if hub_id:
+            hub_alerts = client.get_alerts(hub_id, limit=20)
+            all_alerts.extend(hub_alerts)
+    
+    if not all_alerts:
+        st.info("No alerts found. Your IoT system is running smoothly! 🎉")
+        return
+    
+    # Sort alerts by time (newest first)
+    all_alerts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    # Filter by level
+    alert_level = st.selectbox("Filter by Level", ["All", "critical", "warning", "info"])
+    if alert_level != "All":
+        all_alerts = [alert for alert in all_alerts if alert.get("level") == alert_level]
+    
+    # Display alerts
+    for alert in all_alerts[:10]:  # Show latest 10 alerts
+        level = alert.get("level", "info")
+        message = alert.get("message", "No message")
+        created_at = alert.get("created_at", "Unknown time")
+        hub_id = alert.get("hub_id", "Unknown hub")
+        node_id = alert.get("node_id", "")
+        
+        # Color coding
+        if level == "critical":
+            st.error(f"🚨 **CRITICAL** - {message}")
+        elif level == "warning":
+            st.warning(f"⚠️ **WARNING** - {message}")
+        else:
+            st.info(f"ℹ️ **INFO** - {message}")
+        
+        # Alert details
+        with st.expander(f"Details - {created_at[:16]}"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**Hub ID:** {hub_id}")
+                st.write(f"**Node ID:** {node_id or 'N/A'}")
+            with col2:
+                st.write(f"**Level:** {level.upper()}")
+                st.write(f"**Time:** {created_at}")
+    
+    # Clear old alerts button
+    if st.button("🗑️ Clear Old Alerts (older than 7 days)"):
+        st.info("This feature will be implemented in future versions.")
 
 # Import random for demo data
 import random

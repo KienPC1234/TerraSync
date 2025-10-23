@@ -16,6 +16,7 @@ from pages.login import render_login, logout
 from pages.iot_management import render_iot_management
 from pages.ai_field_detection import render_ai_field_detection
 from pages.satellite_view import render_satellite_view
+from pages.add_field import render_add_field
 from utils import (
     SAMPLE_ALERTS,
     SAMPLE_HISTORY,
@@ -141,12 +142,36 @@ if "user_saved" not in st.session_state:
         user_data = {
             "email": st.user.email,
             "name": st.user.name or "",
-            "picture": getattr(st.user, 'picture', '') or ""
+            "picture": getattr(st.user, 'picture', '') or "",
+            "first_login": datetime.now().isoformat(),
+            "last_login": datetime.now().isoformat(),
+            "is_active": True
         }
-        db.create_or_update_user(user_data)
-        st.session_state.user_saved = True
+        
+        # Tạo hoặc cập nhật user
+        existing_user = db.get_user_by_email(st.user.email)
+        if existing_user:
+            # Cập nhật user hiện tại
+            db.update("users", {"email": st.user.email}, {
+                "last_login": datetime.now().isoformat(),
+                "name": st.user.name or existing_user.get('name', ''),
+                "picture": getattr(st.user, 'picture', '') or existing_user.get('picture', '')
+            })
+            st.session_state.user_saved = True
+        else:
+            # Tạo user mới
+            db.add("users", user_data)
+            st.session_state.user_saved = True
+            st.session_state.new_user = True
+            
     except Exception as e:
         st.error(f"Lỗi lưu thông tin user: {e}")
+        print(f"Database error: {e}")
+
+# Hiển thị thông báo cho user mới
+if st.session_state.get("new_user", False):
+    st.success("🎉 Chào mừng bạn đến với TerraSync IoT! Hãy bắt đầu bằng cách thêm ruộng đầu tiên của bạn.")
+    st.session_state.new_user = False
 
 # -----------------------------
 # ✅ Sau khi login — main app
@@ -155,8 +180,6 @@ load_iot_snapshot()
 
 if st.session_state.pop("refresh_notice", None):
     st.info("IoT data refreshed")
-
-st.success(f"Chào mừng, **{st.user.name or st.user.email}**! 🌱")
 
 # Set up periodic polling
 if "last_poll" not in st.session_state:
@@ -167,7 +190,7 @@ if (datetime.now() - st.session_state.last_poll).total_seconds() > 30:
     load_iot_snapshot(force=True)
     st.session_state.last_poll = datetime.now()
     st.session_state.refresh_notice = True
-    st.rerun()
+    #st.rerun()
 
 # -----------------------------
 # ✅ Sidebar Navigation
@@ -175,8 +198,8 @@ if (datetime.now() - st.session_state.last_poll).total_seconds() > 30:
 with st.sidebar:
     selected = option_menu(
         "🌱 TerraSync",
-        ["Dashboard", "My Fields", "My Schedule", "Ask Sprout AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"],
-        icons=["house", "grid", "calendar", "chat", "wifi", "robot", "satellite", "gear", "question-circle"],
+        ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask Sprout AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"],
+        icons=["house", "grid", "plus", "calendar", "chat", "wifi", "robot", "satellite", "gear", "question-circle"],
         default_index=0,
         menu_icon="psychiatry"
     )
@@ -281,6 +304,9 @@ elif selected == "Ask Sprout AI":
 elif selected == "My Fields":
     render_top_section(Page_Title="Fields Overview")
     render_fields()
+
+elif selected == "Add Field":
+    render_add_field()
 
 elif selected == "My Schedule":
     render_schedule()
