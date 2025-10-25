@@ -6,13 +6,32 @@ import json
 import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from uuid import uuid4
 import uuid
+
+
+"""
+Gửi Kiên,
+Đây là cấu trúc dữ liệu chat history trong database nhé
+{
+    "id": str,
+    "user_email": str,                | Email chủ
+    "messages": List[Dict],
+    "context": Dict,                  | Context
+    "timestamp": str,                 | ISO
+    "shared_with": List[str]          | Email những người được chia sẻ cùng
+}
+"""
+
 
 class TerraSyncDB:
     def __init__(self, db_file: str = "terrasync_db.json"):
         self.db_file = db_file
         self.data: Dict[str, List[Dict[str, Any]]] = {}
         self.load()
+        # Ensure chat_history table exists
+        if "chat_history" not in self.data:
+            self.data["chat_history"] = []
         
     def load(self):
         """Load dữ liệu từ database file"""
@@ -157,12 +176,38 @@ class TerraSyncDB:
     # Fields Management Methods
     def get_user_fields(self, user_email: str) -> List[Dict[str, Any]]:
         """Lấy danh sách fields của user"""
-        return self.get("fields", {"user_email": user_email})
+        # First try to get from fields table
+        fields = self.get("fields", {"user_email": user_email})
+        
+        # If no fields in fields table, try to get from user's fields array
+        if not fields:
+            user = self.get_user_by_email(user_email)
+            if user and "fields" in user:
+                fields = user["fields"]
+        
+        return fields
     
     def add_user_field(self, user_email: str, field_data: Dict[str, Any]) -> bool:
         """Thêm field mới cho user"""
+        # Generate unique ID for the field
+        field_id = str(uuid.uuid4())
+        field_data["id"] = field_id
         field_data["user_email"] = user_email
-        return self.add("fields", field_data)
+        field_data["created_at"] = datetime.now().isoformat()
+        
+        # Add to fields table
+        success = self.add("fields", field_data)
+        
+        if success:
+            # Also add to user's fields array for backward compatibility
+            user = self.get_user_by_email(user_email)
+            if user:
+                if "fields" not in user:
+                    user["fields"] = []
+                user["fields"].append(field_data)
+                self.update("users", {"email": user_email}, {"fields": user["fields"]})
+        
+        return success
     
     def update_user_field(self, field_id: str, user_email: str, update_data: Dict[str, Any]) -> bool:
         """Cập nhật field của user"""
@@ -170,6 +215,52 @@ class TerraSyncDB:
         return updated > 0
     
     def delete_user_field(self, field_id: str, user_email: str) -> bool:
+        return self.delete("fields", {"id": field_id, "user_email": user_email}) > 0
+
+    # Chat History Management Methods
+    def save_chat_history(self, user_email: str, messages: List[Dict[str, Any]], context: Dict[str, Any] = None) -> bool:
+        """Save chat history for a user"""
+        chat_data = {
+            "id": str(uuid4()),
+            "user_email": user_email,
+            "messages": messages,
+            "context": context or {},
+            "timestamp": datetime.now().isoformat(),
+            "shared_with": []
+        }
+        return self.add("chat_history", chat_data)
+
+    def get_user_chat_history(self, user_email: str) -> List[Dict[str, Any]]:
+        """Get all chat histories for a user including those shared with them"""
+        own_chats = self.get("chat_history", {"user_email": user_email})
+        shared_chats = self.get("chat_history", {"shared_with": user_email})
+        return own_chats + shared_chats
+
+    def delete_chat_history(self, chat_id: str, user_email: str) -> bool:
+        """Delete a specific chat history"""
+        return self.delete("chat_history", {"id": chat_id, "user_email": user_email}) > 0
+
+    def share_chat_history(self, chat_id: str, owner_email: str, share_with_email: str) -> bool:
+        """Share a chat history with another user"""
+        chat = self.get_by_id("chat_history", chat_id)
+        if chat and chat.get("user_email") == owner_email:
+            shared_with = chat.get("shared_with", [])
+            if share_with_email not in shared_with:
+                shared_with.append(share_with_email)
+                return self.update("chat_history", {"id": chat_id}, {"shared_with": shared_with}) > 0
+        return False
+
+    def unshare_chat_history(self, chat_id: str, owner_email: str, unshare_with_email: str) -> bool:
+        """Remove sharing of a chat history with a user"""
+        chat = self.get_by_id("chat_history", chat_id)
+        if chat and chat.get("user_email") == owner_email:
+            shared_with = chat.get("shared_with", [])
+            if unshare_with_email in shared_with:
+                shared_with.remove(unshare_with_email)
+                return self.update("chat_history", {"id": chat_id}, {"shared_with": shared_with}) > 0
+        return False
+
+# Global database instance
         """Xóa field của user"""
         deleted = self.delete("fields", {"id": field_id, "user_email": user_email})
         return deleted > 0

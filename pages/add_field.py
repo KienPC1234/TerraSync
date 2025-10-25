@@ -2,19 +2,34 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
-from io import BytesIO
-from PIL import Image
-import numpy as np
 from database import db
 from api_placeholders import terrasync_apis
+from folium import plugins
+import io
+from PIL import Image
+import numpy as np
 
-# AI segmentation function using API with tile image
-def run_ai_segmentation(image_data: bytes, lat: float, lon: float):
-    """AI segmentation using TerraSync API with tile image at given coordinates"""
-    result = terrasync_apis.detect_field_boundaries(image_data, lat=lat, lon=lon)
+# Placeholder function to get satellite image for given coordinates and zoom
+def get_satellite_image(lat: float, lon: float, zoom: int = 18, width: int = 800, height: int = 600):
+    """
+    Placeholder: Fetch satellite image for the given location.
+    In a real implementation, use a service like Google Static Maps, Mapbox, or tile compositing.
+    For now, return a dummy image.
+    """
+    # Dummy image generation (replace with actual API call)
+    img = Image.new('RGB', (width, height), color='lightblue')
+    img_byte_arr = io.BytesIO()
+    img.save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+    return img_byte_arr
+
+# AI segmentation function using API - modified to return multiple fields
+def run_ai_segmentation(image_data: bytes):
+    """AI segmentation using TerraSync API - returns multiple detected fields"""
+    result = terrasync_apis.detect_field_boundaries(image_data)
     if result["status"] == "success" and result["detected_fields"]:
-        return result["detected_fields"][0]["polygon"]
-    return None
+        return result["detected_fields"]
+    return []
 
 def generate_crop_characteristics(crop_name: str):
     """Generate AI characteristics for crop"""
@@ -26,156 +41,207 @@ def generate_crop_characteristics(crop_name: str):
         "irrigation_efficiency": 85
     }
 
-def add_crop(crop_name: str, characteristics: dict):
+def add_crop(crop_name: str, characteristics: dict, user_email: str):
     """Add crop to database"""
     crop_data = {
         "name": crop_name,
         **characteristics,
-        "user_email": st.user.email
+        "user_email": user_email
     }
     return db.add("crops", crop_data)
 
-def get_satellite_tile_image(lat: float, lon: float, zoom: int = 16, size: int = 512):
-    """Fetch satellite tile image for given coordinates using a mapping service"""
-    # Using OpenStreetMap Mapnik tiles for satellite-like imagery (replace with actual satellite API if available)
-    tile_url = f"https://tile.openstreetmap.org/{zoom}/{int(lon_to_tile(lon, zoom))}/{int(lat_to_tile(lat, zoom))}.png"
-    response = requests.get(tile_url)
-    if response.status_code == 200:
-        return BytesIO(response.content)
-    return None
-
-def lat_to_tile(lat: float, zoom: int):
-    """Convert latitude to tile Y coordinate"""
-    lat_rad = np.radians(lat)
-    n = 2.0 ** zoom
-    return (1.0 - np.log(np.tan(lat_rad) + (1 / np.cos(lat_rad))) / np.pi) / 2.0 * n
-
-def lon_to_tile(lon: float, zoom: int):
-    """Convert longitude to tile X coordinate"""
-    n = 2.0 ** zoom
-    return ((lon + 180.0) / 360.0) * n
+def calculate_polygon_area(polygon):
+    """Calculate area of polygon in hectares (approximate)"""
+    if len(polygon) < 3:
+        return 0.0
+    n = len(polygon)
+    area = 0.0
+    for i in range(n):
+        j = (i + 1) % n
+        area += polygon[i][0] * polygon[j][1]
+        area -= polygon[j][0] * polygon[i][1]
+    area = abs(area) / 2.0
+    # Rough conversion from degrees to m² (assumes small area)
+    area_m2 = area * 111320**2 * np.cos(np.radians(polygon[0][0]))
+    return area_m2 / 10000  # to hectares
 
 def render_add_field():
     st.title("🌾 Add New Field")
-    st.markdown("Create a new field using AI detection, manual coordinates, or map drawing")
-
-    # Location input for all methods
-    st.subheader("📍 Field Location")
-    col1, col2 = st.columns(2)
+    st.markdown("Tạo field mới: Nhập tọa độ, xem map vệ tinh, vẽ hoặc dùng AI để xác định polygon")
+    
+    # Get user email from Streamlit OAuth
+    if not hasattr(st, 'user') or not st.user.is_logged_in:
+        st.error("Vui lòng đăng nhập để thêm field")
+        return
+    
+    user_email = st.user.email
+    
+    # Step 1: Enter coordinates and field name
+    st.subheader("📍 Nhập Tọa Độ Vườn")
+    col1, col2, col3 = st.columns([2, 2, 3])
     with col1:
-        lat = st.number_input("Latitude", value=20.450123, format="%.6f")
+        lat = st.number_input("Vĩ độ (Latitude)", value=20.450123, format="%.6f", key="lat_input")
     with col2:
-        lon = st.number_input("Longitude", value=106.325678, format="%.6f")
-
-    # Create map with satellite tiles
-    m = folium.Map(
-        location=[lat, lon],
-        zoom_start=16,
-        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri World Imagery'
-    )
-
-    # Method selection
-    method = st.radio(
-        "Choose Field Creation Method:",
-        ["🤖 AI Field Detection (Satellite Image)", "📍 Manual Coordinates", "🗺️ Map Drawing"],
-        horizontal=True
-    )
-
-    st.divider()
-
-    # Display map
-    map_data = st_folium(m, width=700, height=400, returned_objects=["last_object_clicked"])
-
-    if method == "🤖 AI Field Detection (Satellite Image)":
-        render_ai_field_detection(lat, lon, m)
-    elif method == "📍 Manual Coordinates":
-        render_manual_coordinates(lat, lon, m)
-    else:
-        render_map_drawing(lat, lon, map_data, m)
-
-def render_ai_field_detection(lat: float, lon: float, map_obj):
-    """AI Field Detection using satellite tile image"""
-    st.subheader("🤖 AI Field Detection")
-    st.markdown("Analyze satellite imagery at the specified coordinates to detect field boundaries")
-
-    if st.button("🔍 Detect Field Boundaries", type="primary"):
-        with st.spinner("Fetching and analyzing satellite image..."):
-            # Fetch satellite tile image
-            tile_image = get_satellite_tile_image(lat, lon)
-            if tile_image:
-                # Display tile image
-                st.image(tile_image, caption="Satellite Image", use_container_width=True)
-                
-                # Process with AI
-                image_data = tile_image.getvalue()
-                polygon = run_ai_segmentation(image_data, lat, lon)
-                
-                if polygon:
-                    st.session_state.detected_fields = [{
-                        "polygon": polygon,
-                        "confidence": 0.95,  # Mock confidence
-                        "area_hectares": 1.0,  # Mock area
-                        "crop_type_suggestion": "Rice"  # Mock crop suggestion
-                    }]
-                    st.success("✅ Field boundaries detected!")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to detect field boundaries. Try adjusting coordinates.")
-            else:
-                st.error("❌ Failed to fetch satellite image.")
-
-    # Display detected fields
-    if "detected_fields" in st.session_state:
-        st.subheader("🎯 Detected Fields")
+        lon = st.number_input("Kinh độ (Longitude)", value=106.325678, format="%.6f", key="lon_input")
+    with col3:
+        field_name = st.text_input("Tên Field", placeholder="Nhập tên field", key="field_name")
+    
+    if lat and lon:
+        # Step 2: Satellite Map View
+        st.subheader("🗺️ Map Vệ Tinh")
+        st.markdown("Map zoom đến tọa độ của bạn với ảnh vệ tinh thực tế")
         
-        for i, field in enumerate(st.session_state.detected_fields):
-            with st.expander(f"Field {i+1}: {field.get('crop_type_suggestion', 'Unknown Crop')}", expanded=True):
+        # Create map with satellite tiles (Esri World Imagery)
+        m = folium.Map(location=[lat, lon], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri World Imagery')
+        folium.Marker([lat, lon], popup="Tâm Vườn", icon=folium.Icon(color='red', icon='map-marker')).add_to(m)
+        
+        # Display initial map
+        map_data = st_folium(m, width=700, height=400, key="initial_map")
+        
+        st.divider()
+        
+        # Step 3: Define Polygon - Draw or AI
+        st.subheader("🎯 Xác Định Ranh Giới Field (Polygon)")
+        col_draw, col_ai = st.columns(2)
+        
+        # Option 1: Draw Polygon
+        with col_draw:
+            st.markdown("**🖍️ Vẽ Polygon Thủ Công**")
+            if st.button("Bắt Đầu Vẽ Trên Map", key="start_draw"):
+                st.session_state.draw_mode = True
+                st.rerun()
+            
+            if st.session_state.get('draw_mode', False):
+                draw_m = folium.Map(location=[lat, lon], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
+                folium.Marker([lat, lon], popup="Tâm Vườn").add_to(draw_m)
+                
+                # Add Draw control for polygon
+                draw = plugins.Draw(
+                    draw_options={'polyline': False, 'polygon': True, 'rectangle': False, 'circle': False, 'marker': False, 'circlemarker': False},
+                    edit_options={'edit': False, 'remove': True}
+                )
+                draw_m.add_child(draw)
+                
+                drawn_data = st_folium(draw_m, width=700, height=400, key="draw_map", returned_objects=["last_active_drawing"])
+                
+                if drawn_data and 'last_active_drawing' in drawn_data and drawn_data['last_active_drawing']:
+                    if drawn_data['last_active_drawing']['geometry']['type'] == 'Polygon':
+                        polygon_coords = drawn_data['last_active_drawing']['geometry']['coordinates'][0]
+                        st.session_state.polygon = [[coord[1], coord[0]] for coord in polygon_coords]  # Convert [lon, lat] to [lat, lon]
+                        st.session_state.source = "manual"
+                        st.success("✅ Đã vẽ polygon!")
+                        if st.button("Xong Vẽ"):
+                            st.session_state.draw_mode = False
+                st.rerun()
+            else:
+                st.warning("👆 Vẽ polygon trên map (chỉ polygon)")
+        
+        # Option 2: AI Detection
+        with col_ai:
+            st.markdown("**🤖 Sử Dụng AI Phát Hiện**")
+            if st.button("🔍 Chạy AI Trên Khu Vực Này", type="primary", key="run_ai"):
+                with st.spinner("Đang chụp ảnh vệ tinh và phân tích AI..."):
+                    # Get satellite image
+                    image_data = get_satellite_image(lat, lon, zoom=18)
+                    
+                    # Display captured image
+                    img = Image.open(io.BytesIO(image_data))
+                    st.image(img, caption="Ảnh Vệ Tinh Được Chụp", use_container_width=True)
+                    
+                    # Run AI - get multiple fields
+                    detected_fields = run_ai_segmentation(image_data)
+                    
+                    if detected_fields:
+                        st.session_state.detected_fields = detected_fields
+                        st.session_state.source = "ai"
+                        st.success(f"✅ AI phát hiện {len(detected_fields)} field!")
+                        st.rerun()
+                    else:
+                        st.error("❌ AI không phát hiện được. Thử điều chỉnh tọa độ.")
+        
+        # Display AI detected fields if available
+        if st.session_state.get('source') == "ai" and 'detected_fields' in st.session_state:
+            st.markdown("**🎯 Các Field AI Phát Hiện**")
+            selected_field_idx = st.selectbox(
+                "Chọn 1 field để sử dụng:",
+                options=range(len(st.session_state.detected_fields)),
+                format_func=lambda i: f"Field {i+1}: {st.session_state.detected_fields[i].get('crop_type_suggestion', 'Unknown')} (Diện tích: {st.session_state.detected_fields[i]['area_hectares']:.2f} ha, Độ tin cậy: {st.session_state.detected_fields[i]['confidence']*100:.1f}%)"
+            )
+            selected_polygon = st.session_state.detected_fields[selected_field_idx]['polygon']
+            st.session_state.polygon = selected_polygon
+            st.session_state.ai_confidence = st.session_state.detected_fields[selected_field_idx]['confidence']
+            
+            # Show selected on mini map
+            ai_m = folium.Map(location=[lat, lon], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
+            folium.Polygon(locations=selected_polygon, color='green', fill=True, fill_opacity=0.3).add_to(ai_m)
+            st_folium(ai_m, width=400, height=250)
+            
+            if st.button("Sử Dụng Field Này"):
+                st.success("✅ Đã chọn polygon từ AI!")
+        
+        # Step 4: Field Details if polygon available
+        if st.session_state.get('polygon'):
+            st.divider()
+            st.subheader("📝 Thông Tin Field")
+            
+            area = calculate_polygon_area(st.session_state.polygon)
+            st.metric("Diện Tích Tự Động Tính", f"{area:.2f} ha")
+            
+            with st.form("field_details"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.metric("Confidence", f"{field['confidence']*100:.1f}%")
-                    st.metric("Area", f"{field['area_hectares']:.2f} hectares")
-                    st.metric("Crop Type", field.get('crop_type_suggestion', 'Unknown'))
-                
-                with col2:
-                    # Show polygon on map
-                    if field.get('polygon'):
-                        folium.Polygon(
-                            locations=field['polygon'],
-                            color='green',
-                            fill=True,
-                            fill_opacity=0.3
-                        ).add_to(map_obj)
-                        st_folium(map_obj, width=400, height=300)
-                
-                # Field details form
-                with st.form(f"field_details_{i}"):
-                    st.write("**Field Details:**")
-                    name = st.text_input("Field Name", value=f"AI Field {i+1}")
-                    crop = st.selectbox("Crop Type", 
-                        ["Rice", "Corn", "Wheat", "Soybean", "Tomato", "Potato", "Cabbage", "Other"],
-                        index=0 if field.get('crop_type_suggestion') == 'Rice' else 1
+                    # Field name already input above, but confirm
+                    st.text_input("Tên Field", value=field_name, key="confirm_name", disabled=True)
+                    crop = st.selectbox("Loại Cây Trồng", 
+                        ["Rice", "Corn", "Wheat", "Soybean", "Tomato", "Potato", "Cabbage", "Other"]
                     )
-                    stage = st.selectbox("Growth Stage", 
+                    stage = st.selectbox("Giai Đoạn Sinh Trưởng", 
                         ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
                     )
-                    
-                    if st.form_submit_button("✅ Add This Field", type="primary"):
-                        # Save to database
+                
+                with col2:
+                    if crop == "Other":
+                        custom_crop = st.text_input("Nhập Tên Cây Trồng Khác", placeholder="Ví dụ: Durian")
+                        if custom_crop:
+                            # AI predict characteristics for custom crop
+                            with st.spinner("AI đang dự đoán đặc tính cho cây trồng..."):
+                                characteristics = generate_crop_characteristics(custom_crop)  # Assume API call
+                            crop_coeff = st.number_input("Hệ Số Cây Trồng (AI Dự Đoán)", value=characteristics["crop_coefficient"], step=0.1)
+                            irr_eff = st.number_input("Hiệu Suất Tưới Tiết (%) (AI Dự Đoán)", value=characteristics["irrigation_efficiency"], min_value=50, max_value=100)
+                        else:
+                            st.warning("Vui lòng nhập tên cây trồng để AI dự đoán")
+                            crop_coeff = 1.0
+                            irr_eff = 85
+                    else:
+                        characteristics = generate_crop_characteristics(crop)
+                        crop_coeff = st.number_input("Hệ Số Cây Trồng", value=characteristics["crop_coefficient"], step=0.1)
+                        irr_eff = st.number_input("Hiệu Suất Tưới Tiết (%)", value=characteristics["irrigation_efficiency"], min_value=50, max_value=100)
+                
+                submitted = st.form_submit_button("✅ Thêm Field Vào Farm", type="primary")
+                
+                if submitted:
+                    if not field_name:
+                        st.error("Vui lòng nhập tên field")
+                    else:
+                        # Add crop if needed
+                        actual_crop = custom_crop if crop == "Other" and custom_crop else crop
+                        add_crop(actual_crop, generate_crop_characteristics(actual_crop), user_email)
+                        
+                        center_lat = sum(p[0] for p in st.session_state.polygon) / len(st.session_state.polygon)
+                        center_lon = sum(p[1] for p in st.session_state.polygon) / len(st.session_state.polygon)
+                        
                         field_data = {
-                            'name': name,
-                            'crop': crop,
-                            'area': field['area_hectares'],
-                            'polygon': field['polygon'],
-                            'center': [
-                                sum(p[0] for p in field['polygon']) / len(field['polygon']),
-                                sum(p[1] for p in field['polygon']) / len(field['polygon'])
-                            ],
+                            'name': field_name,
+                            'crop': actual_crop,
+                            'area': area,
+                            'polygon': st.session_state.polygon,
+                            'center': [center_lat, center_lon],
                             'lat': lat,
                             'lon': lon,
                             'stage': stage,
-                            'detection_confidence': field['confidence'],
+                            'crop_coefficient': crop_coeff,
+                            'irrigation_efficiency': irr_eff,
                             'status': 'hydrated',
                             'today_water': 100,
                             'time_needed': 2,
@@ -183,144 +249,38 @@ def render_ai_field_detection(lat: float, lon: float, map_obj):
                             'days_to_harvest': 60
                         }
                         
-                        if db.add_user_field(st.user.email, field_data):
-                            st.success("✅ Field added successfully!")
-                            st.session_state.detected_fields.pop(i)
-                            if not st.session_state.detected_fields:
-                                del st.session_state.detected_fields
-                            st.rerun()
+                        if st.session_state.get('source') == "ai":
+                            field_data['detection_confidence'] = st.session_state.ai_confidence
+                        
+                        # Add field to database
+                        success = db.add_user_field(user_email, field_data)
+                        
+                        if success:
+                            st.success("✅ Field đã được thêm thành công!")
+                            
+                            # Clear session state
+                            for key in ['polygon', 'source', 'draw_mode', 'detected_fields', 'ai_confidence']:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                            
+                            # Show success message and redirect option
+                            st.balloons()
+                            
+                            col1, col2, col3 = st.columns([1, 2, 1])
+                            with col2:
+                                if st.button("🌾 Xem Fields của tôi", type="primary", use_container_width=True):
+                                    # Set session state to navigate to My Fields
+                                    st.session_state.navigate_to = "My Fields"
+                            
+                            # Auto redirect after 3 seconds
+                            import time
+                            with st.spinner("Đang chuyển hướng đến trang My Fields..."):
+                                time.sleep(2)
+                                st.session_state.navigate_to = "My Fields"
+                                st.rerun()
                         else:
-                            st.error("❌ Failed to add field")
-
-def render_manual_coordinates(lat: float, lon: float, map_obj):
-    """Manual field creation with coordinates"""
-    st.subheader("📍 Manual Field Creation")
-    st.markdown("Enter field details manually")
-    
-    with st.form("manual_field"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            name = st.text_input("Field Name", placeholder="Enter field name")
-            crop = st.selectbox("Crop Type", 
-                ["Rice", "Corn", "Wheat", "Soybean", "Tomato", "Potato", "Cabbage", "Other"]
-            )
-            area = st.number_input("Area (hectares)", min_value=0.1, value=1.0, step=0.1)
-            stage = st.selectbox("Growth Stage", 
-                ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
-            )
-        
-        with col2:
-            crop_coefficient = st.number_input("Crop Coefficient", min_value=0.1, max_value=2.0, value=1.0, step=0.1)
-            irrigation_efficiency = st.number_input("Irrigation Efficiency (%)", min_value=50, max_value=100, value=85)
-        
-        # Show map preview with marker
-        folium.Marker([lat, lon], popup="Field Center").add_to(map_obj)
-        st_folium(map_obj, width=700, height=400)
-        
-        if st.form_submit_button("✅ Add Field", type="primary"):
-            if not name:
-                st.error("Please enter a field name")
-            else:
-                # Create simple polygon
-                polygon = [
-                    [lat - 0.0005, lon - 0.0005],
-                    [lat + 0.0005, lon - 0.0005],
-                    [lat + 0.0005, lon + 0.0005],
-                    [lat - 0.0005, lon + 0.0005]
-                ]
-                
-                field_data = {
-                    'name': name,
-                    'crop': crop,
-                    'area': area,
-                    'lat': lat,
-                    'lon': lon,
-                    'center': [lat, lon],
-                    'polygon': polygon,
-                    'stage': stage,
-                    'crop_coefficient': crop_coefficient,
-                    'irrigation_efficiency': irrigation_efficiency,
-                    'status': 'hydrated',
-                    'today_water': 100,
-                    'time_needed': 2,
-                    'progress': 50,
-                    'days_to_harvest': 60
-                }
-                
-                if db.add_user_field(st.user.email, field_data):
-                    st.success("✅ Field added successfully!")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to add field")
-
-def render_map_drawing(lat: float, lon: float, map_data, map_obj):
-    """Map drawing interface"""
-    st.subheader("🗺️ Map Drawing")
-    st.markdown("Draw your field boundaries on the satellite map")
-    
-    # Get clicked location or use provided coordinates
-    clicked_lat = map_data["last_object_clicked"]["lat"] if map_data.get("last_object_clicked") else lat
-    clicked_lon = map_data["last_object_clicked"]["lng"] if map_data.get("last_object_clicked") else lon
-    
-    if map_data.get("last_object_clicked"):
-        st.success(f"📍 Selected location: {clicked_lat:.6f}, {clicked_lon:.6f}")
-        folium.Marker([clicked_lat, clicked_lon], popup="Selected Point").add_to(map_obj)
-        st_folium(map_obj, width=700, height=400)
-    
-    # Field details form
-    with st.form("map_field"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            name = st.text_input("Field Name", placeholder="Enter field name")
-            crop = st.selectbox("Crop Type", 
-                ["Rice", "Corn", "Wheat", "Soybean", "Tomato", "Potato", "Cabbage", "Other"]
-            )
-            area = st.number_input("Area (hectares)", min_value=0.1, value=1.0, step=0.1)
-        
-        with col2:
-            stage = st.selectbox("Growth Stage", 
-                ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
-            )
-            crop_coefficient = st.number_input("Crop Coefficient", min_value=0.1, max_value=2.0, value=1.0, step=0.1)
-            irrigation_efficiency = st.number_input("Irrigation Efficiency (%)", min_value=50, max_value=100, value=85)
-        
-        if st.form_submit_button("✅ Add Field", type="primary"):
-            if not name:
-                st.error("Please enter a field name")
-            else:
-                # Create polygon around clicked point
-                polygon = [
-                    [clicked_lat - 0.0005, clicked_lon - 0.0005],
-                    [clicked_lat + 0.0005, clicked_lon - 0.0005],
-                    [clicked_lat + 0.0005, clicked_lon + 0.0005],
-                    [clicked_lat - 0.0005, clicked_lon + 0.0005]
-                ]
-                
-                field_data = {
-                    'name': name,
-                    'crop': crop,
-                    'area': area,
-                    'lat': clicked_lat,
-                    'lon': clicked_lon,
-                    'center': [clicked_lat, clicked_lon],
-                    'polygon': polygon,
-                    'stage': stage,
-                    'crop_coefficient': crop_coefficient,
-                    'irrigation_efficiency': irrigation_efficiency,
-                    'status': 'hydrated',
-                    'today_water': 100,
-                    'time_needed': 2,
-                    'progress': 50,
-                    'days_to_harvest': 60
-                }
-                
-                if db.add_user_field(st.user.email, field_data):
-                    st.success("✅ Field added successfully!")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to add field")
-    
-    if not map_data.get("last_object_clicked"):
-        st.info("👆 Click on the map to select field location")
+                            st.error("❌ Lỗi khi thêm field vào database")
+        else:
+            st.info("👆 Vẽ polygon thủ công hoặc chạy AI để tiếp tục")
+    else:
+        st.warning("Vui lòng nhập tọa độ để bắt đầu")

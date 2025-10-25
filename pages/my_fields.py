@@ -21,9 +21,14 @@ def render_progress(value):
 def render_fields():
     st.set_page_config(page_title="My Fields", page_icon="👩🏻‍🌾", layout="wide")
     
+    # Check if user is logged in
+    if not hasattr(st, 'user') or not st.user.is_logged_in:
+        st.error("Vui lòng đăng nhập để xem fields")
+        return
+    
     # Lấy fields từ database
-    user_fields = db.get_user_fields(st.user.email) if hasattr(st, 'user') and st.user.is_logged_in else []
-    fields = user_fields
+    user_fields = db.get_user_fields(st.user.email)
+    fields = user_fields if user_fields else []
     
     # Cập nhật session state
     st.session_state.fields = fields
@@ -73,14 +78,32 @@ def render_fields():
 
     
     # All Fields
-    st.subheader("All Fields")
+    col_title, col_add = st.columns([4, 1])
+    with col_title:
+        st.subheader("All Fields")
+    with col_add:
+        if st.button("➕ Add Field", type="primary", use_container_width=True):
+            st.session_state.navigate_to = "Add Field"
+            st.rerun()
+    
+    # Show field count
+    if fields:
+        st.info(f"📊 Bạn có {len(fields)} field(s)")
+    else:
+        st.info("🌱 Bạn chưa có field nào. Hãy thêm field đầu tiên!")
+        st.markdown("👉 **Click nút 'Add Field' ở trên để tạo field mới**")
+        return
+    
     search_query = st.text_input("", placeholder="Search fields", label_visibility="collapsed")
     
     # Filter fields based on search
-    filtered_fields = [f for f in fields if search_query.lower() in f.get('name', '').lower() or search_query.lower() in f.get('crop', '').lower()]
+    if search_query:
+        filtered_fields = [f for f in fields if search_query.lower() in f.get('name', '').lower() or search_query.lower() in f.get('crop', '').lower()]
+    else:
+        filtered_fields = fields
     
     if not filtered_fields:
-        st.info("No fields found. Add your first field using the button above.")
+        st.warning(f"Không tìm thấy field nào với từ khóa '{search_query}'")
         return
     
     for field in filtered_fields:

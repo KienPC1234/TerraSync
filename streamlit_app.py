@@ -294,6 +294,20 @@ def render_top_section(location="Paso Robles Farm", Page_Title=""):
 # -----------------------------
 # ✅ Điều hướng giữa các page
 # -----------------------------
+
+# Check for navigation request from add_field
+if st.session_state.get("navigate_to"):
+    target_page = st.session_state.navigate_to
+    # Clear navigation request
+    del st.session_state.navigate_to
+    
+    # Find the index of target page
+    page_options = ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask Sprout AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"]
+    if target_page in page_options:
+        target_index = page_options.index(target_page)
+        # Update selected page
+        selected = target_page
+
 if selected == "Dashboard":
     render_top_section(Page_Title=f"👋 Welcome back, {st.user.name}")
     render_dashboard()
