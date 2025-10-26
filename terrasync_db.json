@@ -5,11 +5,11 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-10-23T19:37:17.461442",
-      "last_login": "2025-10-23T21:08:38.140757",
+      "last_login": "2025-10-25T09:36:17.034961",
       "is_active": true,
       "id": "6de2c8a0-ec63-4358-8b59-02f269fa59c4",
       "created_at": "2025-10-23T19:37:17.461485",
-      "updated_at": "2025-10-23T21:08:38.140769",
+      "updated_at": "2025-10-25T09:36:17.034973",
       "phone": "",
       "organization": "kien",
       "role": "Farmer",
@@ -70,6 +70,94 @@
           "id": "400f7674-1f66-478d-8031-845208a8e166",
           "user_email": "kienpc872009@gmail.com",
           "created_at": "2025-10-23T20:56:55.702472"
+        },
+        {
+          "name": "Vườn Ươm 1",
+          "crop": "Mango",
+          "area": 0.4660749770313083,
+          "polygon": [
+            [
+              20.450905,
+              106.325984
+            ],
+            [
+              20.45,
+              106.325324
+            ],
+            [
+              20.449859,
+              106.325592
+            ],
+            [
+              20.450543,
+              106.326295
+            ],
+            [
+              20.450905,
+              106.325984
+            ]
+          ],
+          "center": [
+            20.4504424,
+            106.32583580000001
+          ],
+          "lat": 20.450123,
+          "lon": 106.325678,
+          "stage": "Seedling",
+          "crop_coefficient": 1.0,
+          "irrigation_efficiency": 85,
+          "status": "hydrated",
+          "today_water": 100,
+          "time_needed": 2,
+          "progress": 50,
+          "days_to_harvest": 60,
+          "id": "73660aec-413f-4221-992b-5433eacff133",
+          "user_email": "kienpc872009@gmail.com",
+          "created_at": "2025-10-25T09:12:09.805302"
+        },
+        {
+          "name": "Vườn Ươm 2",
+          "crop": "Mango",
+          "area": 0.19395044601762712,
+          "polygon": [
+            [
+              20.45087,
+              106.325979
+            ],
+            [
+              20.450528,
+              106.325603
+            ],
+            [
+              20.450352,
+              106.325871
+            ],
+            [
+              20.450653,
+              106.326274
+            ],
+            [
+              20.45087,
+              106.325979
+            ]
+          ],
+          "center": [
+            20.4506546,
+            106.32594120000002
+          ],
+          "lat": 20.450123,
+          "lon": 106.325678,
+          "stage": "Seedling",
+          "crop_coefficient": 1.0,
+          "irrigation_efficiency": 85,
+          "status": "hydrated",
+          "today_water": 100,
+          "time_needed": 2,
+          "progress": 50,
+          "days_to_harvest": 60,
+          "id": "1ee2ef86-cfe6-4109-8739-a5b005873e0c",
+          "user_email": "kienpc872009@gmail.com",
+          "created_at": "2025-10-25T09:20:34.634801"
         }
       ]
     },
@@ -225,17 +313,6 @@
       "created_at": "2025-10-23T20:41:23.667771"
     },
     {
-      "name": "Test Field",
-      "crop": "Rice",
-      "area": 1.5,
-      "lat": 20.45,
-      "lon": 106.32,
-      "stage": "Vegetative",
-      "id": "25edf6b8-b04e-4add-8be5-ad4c2bfa2e35",
-      "user_email": "kienpc872009@gmail.com",
-      "created_at": "2025-10-23T20:47:38.066758"
-    },
-    {
       "name": "kien",
       "crop": "Rice",
       "area": 2.1485847829888596,
@@ -278,41 +355,203 @@
       "id": "400f7674-1f66-478d-8031-845208a8e166",
       "user_email": "kienpc872009@gmail.com",
       "created_at": "2025-10-23T20:56:55.702472"
+    },
+    {
+      "name": "Vườn Ươm 1",
+      "crop": "Mango",
+      "area": 0.4660749770313083,
+      "polygon": [
+        [
+          20.450905,
+          106.325984
+        ],
+        [
+          20.45,
+          106.325324
+        ],
+        [
+          20.449859,
+          106.325592
+        ],
+        [
+          20.450543,
+          106.326295
+        ],
+        [
+          20.450905,
+          106.325984
+        ]
+      ],
+      "center": [
+        20.4504424,
+        106.32583580000001
+      ],
+      "lat": 20.450123,
+      "lon": 106.325678,
+      "stage": "Seedling",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "status": "hydrated",
+      "today_water": 100,
+      "time_needed": 2,
+      "progress": 50,
+      "days_to_harvest": 60,
+      "id": "73660aec-413f-4221-992b-5433eacff133",
+      "user_email": "kienpc872009@gmail.com",
+      "created_at": "2025-10-25T09:12:09.805302"
+    },
+    {
+      "name": "Vườn Ươm 2",
+      "crop": "Mango",
+      "area": 0.19395044601762712,
+      "polygon": [
+        [
+          20.45087,
+          106.325979
+        ],
+        [
+          20.450528,
+          106.325603
+        ],
+        [
+          20.450352,
+          106.325871
+        ],
+        [
+          20.450653,
+          106.326274
+        ],
+        [
+          20.45087,
+          106.325979
+        ]
+      ],
+      "center": [
+        20.4506546,
+        106.32594120000002
+      ],
+      "lat": 20.450123,
+      "lon": 106.325678,
+      "stage": "Seedling",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "status": "hydrated",
+      "today_water": 100,
+      "time_needed": 2,
+      "progress": 50,
+      "days_to_harvest": 60,
+      "id": "1ee2ef86-cfe6-4109-8739-a5b005873e0c",
+      "user_email": "kienpc872009@gmail.com",
+      "created_at": "2025-10-25T09:20:34.634801"
     }
   ],
   "crops": [
     {
       "name": "Rice",
-      "growth_rate": 0.5,
-      "water_requirement": 100,
-      "sun_requirement": 6,
+      "user_email": "test@terrasync.com",
       "crop_coefficient": 1.0,
       "irrigation_efficiency": 85,
-      "user_email": "user@example.com",
-      "id": "0d274104-2615-43a2-877c-497eaafec601",
-      "created_at": "2025-10-23T20:40:39.040256"
+      "created_at": "2025-10-25T08:52:48.529346",
+      "is_ai_generated": false,
+      "id": "753e1b81-b5ec-43db-824e-1c3752184e99"
+    },
+    {
+      "name": "Corn",
+      "user_email": "test@terrasync.com",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "created_at": "2025-10-25T08:52:48.529824",
+      "is_ai_generated": false,
+      "id": "0951079f-b041-4308-968b-c243e22a052d"
+    },
+    {
+      "name": "Wheat",
+      "user_email": "test@terrasync.com",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "created_at": "2025-10-25T08:52:48.530303",
+      "is_ai_generated": false,
+      "id": "8550df21-249e-4b0d-9849-8eaf03159180"
+    },
+    {
+      "name": "Tomato",
+      "user_email": "test@terrasync.com",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "created_at": "2025-10-25T08:52:48.530754",
+      "is_ai_generated": false,
+      "id": "a73f328b-bd1b-4103-8488-204d9f74131d"
+    },
+    {
+      "name": "Durian",
+      "user_email": "test@terrasync.com",
+      "crop_coefficient": 1.2,
+      "irrigation_efficiency": 80,
+      "created_at": "2025-10-25T08:52:48.531235",
+      "is_ai_generated": true,
+      "id": "4bcfaf10-d642-4b4c-88ae-a333e53e0bff"
     },
     {
       "name": "Rice",
-      "growth_rate": 0.5,
-      "water_requirement": 100,
-      "sun_requirement": 6,
+      "user_email": "test@terrasync.com",
       "crop_coefficient": 1.0,
       "irrigation_efficiency": 85,
-      "user_email": "user@example.com",
-      "id": "75cd8091-7518-4829-80e5-619ce97fc585",
-      "created_at": "2025-10-23T20:41:23.666812"
+      "created_at": "2025-10-25T08:53:07.867350",
+      "is_ai_generated": false,
+      "id": "f72f3f3a-65f3-434f-9367-6b8e6c751d63"
     },
     {
-      "name": "Rice",
-      "growth_rate": 0.5,
-      "water_requirement": 100,
-      "sun_requirement": 6,
+      "name": "Corn",
+      "user_email": "test@terrasync.com",
       "crop_coefficient": 1.0,
       "irrigation_efficiency": 85,
+      "created_at": "2025-10-25T08:53:07.867917",
+      "is_ai_generated": false,
+      "id": "2f263a3a-506d-42ae-97e4-90486a21e754"
+    },
+    {
+      "name": "Wheat",
+      "user_email": "test@terrasync.com",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "created_at": "2025-10-25T08:53:07.868419",
+      "is_ai_generated": false,
+      "id": "47102af8-25be-497d-8293-d931c734a5d5"
+    },
+    {
+      "name": "Tomato",
+      "user_email": "test@terrasync.com",
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "created_at": "2025-10-25T08:53:07.868958",
+      "is_ai_generated": false,
+      "id": "126e8f2c-1d8d-4ac4-b5b6-b0a61327a32b"
+    },
+    {
+      "name": "Durian",
+      "user_email": "test@terrasync.com",
+      "crop_coefficient": 1.2,
+      "irrigation_efficiency": 80,
+      "created_at": "2025-10-25T08:53:07.869487",
+      "is_ai_generated": true,
+      "id": "68354411-76f2-4072-9d4e-6388da182f35"
+    },
+    {
+      "name": "Mango",
+      "growth_rate": 0.7,
+      "water_requirement": 100,
+      "sun_requirement": 8,
+      "crop_coefficient": 1.0,
+      "irrigation_efficiency": 85,
+      "planting_season": "General",
+      "harvest_days": 90,
+      "soil_type": "Loam",
+      "ph_range": "6.0-7.0",
       "user_email": "kienpc872009@gmail.com",
-      "id": "33a78e82-3b03-45f6-898b-589b9615fe3d",
-      "created_at": "2025-10-23T20:56:55.700183"
+      "created_at": "2025-10-25T09:12:09.803712",
+      "is_ai_generated": true,
+      "id": "53dc2575-8c97-447d-8eda-c96d51539385"
     }
-  ]
+  ],
+  "chat_history": []
 }
