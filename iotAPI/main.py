@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, validator
 
 # Add parent directory to path to import database
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from database import DatabaseManager
+from database import db
 
 # Security
 security = HTTPBearer()
@@ -87,8 +87,6 @@ class APIResponse(BaseModel):
     data: Optional[Dict[str, Any]] = Field(None, description="Response data")
 
 
-# Initialize database
-db = DatabaseManager()
 
 # Simple API key validation (in production, use proper authentication)
 API_KEYS = {

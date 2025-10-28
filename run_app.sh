@@ -27,6 +27,11 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
 API_PID=$!
 cd ..
 
+# Start background job in background
+echo "🏃‍♀️ Starting background job..."
+python untils/background_job.py &
+JOB_PID=$!
+
 # Wait a moment for API server to start
 sleep 3
 
@@ -38,6 +43,7 @@ streamlit run streamlit_app.py --server.port 8502 --server.address 0.0.0.0
 cleanup() {
     echo "🛑 Shutting down..."
     kill $API_PID 2>/dev/null
+    kill $JOB_PID 2>/dev/null
     exit 0
 }
 

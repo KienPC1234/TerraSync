@@ -7,15 +7,113 @@ import streamlit as st
 import folium
 from streamlit_folium import folium_static
 import requests
+import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
-from api_placeholders import terrasync_apis
+from PIL import Image
+import io
+import base64
 from database import db
+
+API_URL = "http://172.24.193.209:9990"
+
+def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]] = None) -> Dict[str, Any]:
+    """
+    Xử lý ảnh vệ tinh sử dụng API endpoint /process_satellite_image.
+    Tạo GeoJSON từ polygon hoặc center point và gửi data trực tiếp.
+    """
+    if polygon is None:
+        # Tạo polygon nhỏ quanh center (khoảng 100m x 100m)
+        side = 0.001
+        polygon = [
+            [lat - side / 2, lon - side / 2],
+            [lat - side / 2, lon + side / 2],
+            [lat + side / 2, lon + side / 2],
+            [lat + side / 2, lon - side / 2]
+        ]
+    
+    # Chuyển sang định dạng GeoJSON (lon, lat)
+    ring = [[lon_, lat_] for lat_, lon_ in polygon]
+    ring.append(ring[0])  # Đóng ring cho Polygon hợp lệ
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [ring]
+                },
+                "properties": {}
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(
+            f"{API_URL}/process_satellite_image",
+            json={
+                "geojson_data": geojson,
+                "cloud": 50.0,
+                "days": 30,
+                "upscale": 4,
+                "collection": "sentinel-2"
+            },
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            api_result = response.json()
+            
+            # Mock dữ liệu NDVI dựa trên predicted_class (để tương thích với NDVI analysis)
+            predicted_class = api_result.get("predicted_class", "").lower()
+            if "vegetation" in predicted_class or "crop" in predicted_class:
+                ndvi = 0.6
+            elif "bare" in predicted_class or "soil" in predicted_class:
+                ndvi = 0.1
+            else:
+                ndvi = 0.3
+            
+            satellite_data = {
+                "ndvi_index": ndvi,
+                "evapotranspiration": 3.5 + (ndvi * 2),  # Mock dựa trên NDVI
+                "soil_moisture_index": 0.4 + (ndvi * 0.2),
+                "cloud_coverage": 15.0  # Mock
+            }
+            
+            return {
+                "status": "success",
+                "satellite_data": satellite_data,
+                "api_result": api_result
+            }
+        else:
+            return {"status": "error", "message": response.text}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def get_weather_forecast(lat: float, lon: float, days: int = 7) -> Dict[str, Any]:
+    """
+    Mock weather forecast (có thể thay bằng API thực tế sau).
+    """
+    times = [(datetime.now() + timedelta(i)).strftime("%Y-%m-%d") for i in range(days)]
+    return {
+        "status": "success",
+        "forecast": {
+            "daily": {
+                "time": times,
+                "temperature_2m_max": [28 + (i * 0.5) for i in range(days)],
+                "temperature_2m_min": [20 + (i * 0.3) for i in range(days)],
+                "precipitation_sum": [2 if i % 3 == 0 else 0 for i in range(days)],
+                "wind_speed_10m_max": [4 + (i * 0.2) for i in range(days)]
+            }
+        }
+    }
 
 def render_satellite_view():
     """Trang xem ruộng qua vệ tinh"""
     st.title("🛰️ Satellite View & Remote Sensing")
-    st.markdown("Xem ruộng qua ảnh vệ tinh với AI xử lý mây che và phân tích NDVI")
+    st.markdown("Xem ruộng qua ảnh vệ tinh với AI upscaling")
     
     # Tabs
     tab1, tab2, tab3 = st.tabs(["🗺️ Satellite Map", "📊 NDVI Analysis", "🌤️ Weather Overlay"])
@@ -111,14 +209,29 @@ def render_satellite_map():
     with col1:
         if st.button("🔍 Process Satellite Image", type="primary"):
             with st.spinner("AI is processing satellite imagery..."):
-                result = terrasync_apis.process_satellite_imagery(center_lat, center_lon)
+                result = process_satellite_imagery(center_lat, center_lon, selected_field.get('polygon'))
                 
                 if result["status"] == "success":
                     st.session_state.satellite_result = result
                     st.success("✅ Satellite processing completed!")
+                    
+                    # Hiển thị ảnh đã xử lý và kết quả AI
+                    api_res = result["api_result"]
+                    if "annotated_image_base64" in api_res:
+                        image_bytes = base64.b64decode(api_res["annotated_image_base64"])
+                        st.image(Image.open(io.BytesIO(image_bytes)), caption="Processed Satellite Image with AI Detection & Upscaling", use_column_width=True)
+                    
+                    if "predicted_class" in api_res:
+                        st.info(f"🌱 Predicted Land Class: {api_res['predicted_class']}")
+                    
+                    if "bboxes" in api_res and api_res["bboxes"]:
+                        st.subheader("Detected Features")
+                        for b in api_res["bboxes"]:
+                            st.write(f"• {b['class_name']} (Confidence: {b['confidence']:.2f}) at bbox {b['bbox']}")
+                    
                     st.rerun()
                 else:
-                    st.error("❌ Processing failed. Please try again.")
+                    st.error(f"❌ Processing failed: {result.get('message', 'Unknown error')}")
     
     with col2:
         date_range = st.date_input(
@@ -140,6 +253,12 @@ def render_ndvi_analysis():
     
     result = st.session_state.satellite_result
     satellite_data = result.get("satellite_data", {})
+    api_res = result.get("api_result", {})
+    
+    # Hiển thị lại ảnh nếu có
+    if "annotated_image_base64" in api_res:
+        image_bytes = base64.b64decode(api_res["annotated_image_base64"])
+        st.image(Image.open(io.BytesIO(image_bytes)), caption="AI Processed Satellite Image", use_column_width=True)
     
     # NDVI metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -176,7 +295,7 @@ def render_ndvi_analysis():
         ndvi_status = "🌿 Dense Vegetation"
         ndvi_color = "darkgreen"
     
-    st.markdown(f"**Vegetation Status:** {ndvi_status}")
+    st.markdown(f"**Vegetation Status:** <span style='color:{ndvi_color}'>{ndvi_status}</span>", unsafe_allow_html=True)
     
     # NDVI chart
     st.subheader("📈 NDVI Trends")
@@ -186,7 +305,7 @@ def render_ndvi_analysis():
     import plotly.graph_objects as go
     
     dates = pd.date_range(start=datetime.now() - timedelta(days=30), end=datetime.now(), freq='D')
-    ndvi_values = [ndvi + (i * 0.01) + (0.1 * (i % 7 - 3)) for i in range(len(dates))]
+    ndvi_values = [ndvi + (i * 0.001) + (0.05 * (i % 7 - 3)) for i in range(len(dates))]
     
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -249,7 +368,7 @@ def render_weather_overlay():
     # Lấy dự báo thời tiết
     if st.button("🌤️ Get Weather Forecast"):
         with st.spinner("Fetching weather data..."):
-            weather_data = terrasync_apis.get_weather_forecast(center_lat, center_lon, 7)
+            weather_data = get_weather_forecast(center_lat, center_lon, 7)
             
             if weather_data["status"] == "success":
                 st.session_state.weather_data = weather_data

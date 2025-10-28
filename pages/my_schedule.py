@@ -76,46 +76,46 @@ def render_current_schedule(field):
         # Schedule chart
         schedule_df = pd.DataFrame(schedule['schedule'])
         
-        fig = px.bar(
-            schedule_df,
-            x='date',
+    fig = px.bar(
+        schedule_df,
+        x='date',
             y='water_liters',
             title='Daily Water Requirements (Next 7 Days)',
             labels={'water_liters': 'Water (Liters)', 'date': 'Date'},
             color='water_liters',
-            color_continuous_scale='Blues'
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        color_continuous_scale='Blues'
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailed schedule table
+    st.subheader("📋 Detailed Schedule")
+    
+    # Format schedule for display
+    display_schedule = []
+    for day in schedule['schedule']:
+        display_schedule.append({
+            'Date': day['date'],
+            'Water (L)': f"{day['water_liters']:.1f}",
+            'Irrigation Time': day['irrigation_time'],
+            'Duration (min)': day['duration_minutes'],
+            'Efficiency': f"{day['efficiency']*100:.1f}%"
+        })
         
-        # Detailed schedule table
-        st.subheader("📋 Detailed Schedule")
-        
-        # Format schedule for display
-        display_schedule = []
-        for day in schedule['schedule']:
-            display_schedule.append({
-                'Date': day['date'],
-                'Water (L)': f"{day['water_liters']:.1f}",
-                'Irrigation Time': day['irrigation_time'],
-                'Duration (min)': day['duration_minutes'],
-                'Efficiency': f"{day['efficiency']*100:.1f}%"
-            })
-        
-        st.dataframe(
+    st.dataframe(
             pd.DataFrame(display_schedule),
             use_container_width=True,
             hide_index=True
         )
         
         # Export schedule
-        if st.button("📤 Export Schedule"):
-            csv = pd.DataFrame(display_schedule).to_csv(index=False)
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f"irrigation_schedule_{field.get('name', 'field')}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+    if st.button("📤 Export Schedule"):
+        csv = pd.DataFrame(display_schedule).to_csv(index=False)
+        st.download_button(
+            label="Download CSV",
+            data=csv,
+            file_name=f"irrigation_schedule_{field.get('name', 'field')}_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
     else:
         st.info("Click 'Generate New Schedule' to create your irrigation plan")
 
