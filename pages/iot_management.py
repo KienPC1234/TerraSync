@@ -6,7 +6,7 @@ Quản lý thiết bị IoT, hub và cảm biến
 import streamlit as st
 import json
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any
 from api_placeholders import terrasync_apis
 from database import db
@@ -47,53 +47,44 @@ def render_hub_management():
     
     # Thêm hub mới
     with st.expander("➕ Add New Hub", expanded=False):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            hub_name = st.text_input("Hub Name", placeholder="Main Farm Hub")
-            hub_location = st.text_input("Location", placeholder="Field A - North Section")
-            hub_ip = st.text_input("Hub IP Address", placeholder="192.168.1.100")
-        
-        with col2:
-            hub_lat = st.number_input("Latitude", value=20.450123, format="%.6f")
-            hub_lon = st.number_input("Longitude", value=106.325678, format="%.6f")
-            rf_channel = st.selectbox("RF Channel", options=list(range(1, 11)))
+        hub_id = st.text_input("Hub ID", placeholder="Enter the ID from your Hub device")
+        hub_name = st.text_input("Hub Name (Optional)", placeholder="e.g., Main Farm Hub")
+
+        # Lấy danh sách vườn của user
+        user_fields = db.get("fields", {"user_email": st.user.email})
+        if not user_fields:
+            st.warning("You need to create a field first before adding a hub.")
+            return
+
+        field_options = {field['id']: field['name'] for field in user_fields}
+        selected_field_id = st.selectbox("Choose a field to assign this hub to", options=list(field_options.keys()), format_func=lambda x: field_options[x])
         
         if st.button("🔗 Register Hub", type="primary"):
-            # Generate unique hub ID
-            import uuid
-            hub_id = f"hub-{uuid.uuid4().hex[:8]}"
-            
-            # Create hub data for IoT API
-            hub_data = create_sample_hub_data(
-                hub_id=hub_id,
-                user_email=st.user.email,
-                field_id="field-001",  # Default field
-                lat=hub_lat,
-                lon=hub_lon
-            )
-            
-            # Register with IoT API
-            client = get_iot_client()
-            success = client.register_hub(hub_data)
-            
-            if success:
-                # Also save to local database
-                local_hub_data = {
-                    "hub_id": hub_id,
-                    "name": hub_name,
-                    "location": hub_location,
-                    "ip_address": hub_ip,
-                    "coordinates": {"lat": hub_lat, "lon": hub_lon},
-                    "rf_channel": rf_channel,
-                    "user_email": st.user.email,
-                    "registered_at": datetime.now().isoformat()
-                }
-                db.add("iot_hubs", local_hub_data)
-                st.success(f"✅ Hub registered successfully! Hub ID: {hub_id}")
-                st.rerun()
+            if not hub_id:
+                st.error("Hub ID is required.")
+            elif not selected_field_id:
+                st.error("You must select a field.")
             else:
-                st.error("❌ Failed to register hub with IoT API")
+                # Create hub data for IoT API
+                hub_data = {
+                    "hub_id": hub_id,
+                    "user_email": st.user.email,
+                    "field_id": selected_field_id,
+                    "name": hub_name if hub_name else f"Hub {hub_id[:8]}"
+                }
+                
+                # Register with IoT API
+                client = get_iot_client()
+                # Assuming the client's register_hub returns a dict response from the API
+                response = client.register_hub(hub_data) 
+                
+                if response and response.get("status") == "success":
+                    st.success(f"✅ {response.get('message', 'Hub registered successfully!')}")
+                    st.rerun()
+                else:
+                    error_msg = response.get('detail') if response else "Failed to register hub. The hub might be offline or the ID is incorrect."
+                    st.error(f"❌ {error_msg}")
+
     
     # Danh sách hubs
     st.subheader("📋 Registered Hubs")
@@ -109,21 +100,48 @@ def render_hub_management():
             
             with col1:
                 st.markdown(f"**{hub.get('name', 'Unnamed Hub')}**")
-                st.caption(f"📍 {hub.get('location', 'Unknown location')}")
+                field_name = "N/A"
+                if hub.get('field_id'):
+                    # Assuming db.get returns a list
+                    field_list = db.get("fields", {"id": hub.get('field_id')})
+                    if field_list:
+                        field_name = field_list[0].get("name", "N/A")
+                st.caption(f"📍 Field: {field_name}")
                 st.caption(f"🆔 Hub ID: `{hub.get('hub_id', 'N/A')}`")
             
             with col2:
-                # Status indicator
-                status = "🟢 Online" if random.random() > 0.2 else "🔴 Offline"
+                # Status indicator based on last_seen
+                last_seen_str = hub.get("last_seen")
+                status = "⚪ Unknown"
+                if last_seen_str:
+                    try:
+                        # Handle different ISO formats
+                        if last_seen_str.endswith('Z'):
+                            last_seen_str = last_seen_str.replace("Z", "+00:00")
+                        
+                        last_seen = datetime.fromisoformat(last_seen_str)
+                        
+                        # Make last_seen offset-aware if it's not
+                        if last_seen.tzinfo is None:
+                            last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+                        if (datetime.now(timezone.utc) - last_seen).total_seconds() < 960: # 16 minutes
+                             status = "🟢 Online"
+                        else:
+                             status = "🔴 Offline"
+                    except (ValueError, TypeError):
+                        status = "⚪ Invalid time"
+
                 st.markdown(f"Status: {status}")
-                st.caption(f"📡 RF Channel: {hub.get('rf_channel', 'N/A')}")
-                st.caption(f"🌐 IP: {hub.get('ip_address', 'N/A')}")
+                st.caption(f"Last seen: {hub.get('last_seen', 'N/A')[:19] if hub.get('last_seen') else 'N/A'}")
+
             
             with col3:
                 if st.button("⚙️", key=f"config_{hub['hub_id']}", help="Configure"):
                     st.session_state.selected_hub = hub
                 
                 if st.button("🗑️", key=f"delete_{hub['hub_id']}", help="Delete"):
+                    # In a real app, this should call an API to delete the hub
                     db.delete("iot_hubs", {"hub_id": hub["hub_id"]})
                     st.rerun()
 
@@ -137,58 +155,68 @@ def render_sensor_management():
         st.warning("Please register a hub first.")
         return
     
+    hub_options = {hub['hub_id']: hub.get('name', hub['hub_id']) for hub in user_hubs}
     selected_hub_id = st.selectbox(
         "Select Hub",
-        options=[hub["hub_id"] for hub in user_hubs],
-        format_func=lambda x: next(hub["name"] for hub in user_hubs if hub["hub_id"] == x)
+        options=list(hub_options.keys()),
+        format_func=lambda x: hub_options[x]
     )
     
     if selected_hub_id:
-        # Lấy thông tin cảm biến
-        sensors_data = terrasync_apis.get_hub_sensors(selected_hub_id)
+        # Lấy thông tin cảm biến từ API
+        client = get_iot_client()
+        status_data = client.get_hub_status(selected_hub_id)
         
-        if sensors_data["status"] == "success":
-            sensors = sensors_data["sensors"]
+        if status_data and status_data.get('hubs'):
+            hub_info = status_data['hubs'][0]
+            sensors = hub_info.get('sensors', [])
             
             # Thống kê tổng quan
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Sensors", sensors_data["total_sensors"])
-            with col2:
-                st.metric("Online", sensors_data["online_sensors"])
-            with col3:
-                st.metric("Offline", sensors_data["total_sensors"] - sensors_data["online_sensors"])
-            with col4:
-                avg_battery = sum(s["battery_level"] for s in sensors) / len(sensors) if sensors else 0
-                st.metric("Avg Battery", f"{avg_battery:.0f}%")
+            online_sensors = sum(1 for s in sensors if s.get('status') == 'active') # Assuming 'active' means online
             
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Sensors", len(sensors))
+            with col2:
+                st.metric("Online", online_sensors)
+            with col3:
+                st.metric("Offline", len(sensors) - online_sensors)
+
             # Danh sách cảm biến
             st.subheader("📋 Sensor Details")
+            if not sensors:
+                st.info("This hub has not reported any sensors yet.")
+
             for sensor in sensors:
                 with st.container():
                     col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
                     
                     with col1:
-                        st.markdown(f"**{sensor['node_id']}**")
-                        st.caption(f"Type: {sensor['type'].replace('_', ' ').title()}")
+                        st.markdown(f"**{sensor.get('node_id', 'N/A')}**")
+                        st.caption(f"Type: {sensor.get('sensor_type', 'N/A').replace('_', ' ').title()}")
                     
                     with col2:
-                        # Battery indicator
-                        battery_color = "🟢" if sensor["battery_level"] > 70 else "🟡" if sensor["battery_level"] > 30 else "🔴"
-                        st.markdown(f"{battery_color} Battery: {sensor['battery_level']}%")
+                        # Battery and signal are not in the current model, using placeholders
+                        battery_level = random.randint(20, 100)
+                        signal_strength = random.randint(40, 100)
+                        battery_color = "🟢" if battery_level > 70 else "🟡" if battery_level > 30 else "🔴"
+                        st.markdown(f"{battery_color} Battery: {battery_level}%")
                         
-                        # Signal strength
-                        signal_color = "🟢" if sensor["signal_strength"] > 80 else "🟡" if sensor["signal_strength"] > 50 else "🔴"
-                        st.caption(f"{signal_color} Signal: {sensor['signal_strength']}%")
+                        signal_color = "🟢" if signal_strength > 80 else "🟡" if signal_strength > 50 else "🔴"
+                        st.caption(f"{signal_color} Signal: {signal_strength}%")
                     
                     with col3:
-                        status_color = "🟢" if sensor["status"] == "online" else "🔴"
-                        st.markdown(f"{status_color} {sensor['status'].title()}")
-                        st.caption(f"Last seen: {sensor['last_seen'][:16]}")
+                        status = sensor.get('status', 'unknown')
+                        status_color = "🟢" if status == "active" else "🔴"
+                        st.markdown(f"{status_color} {status.title()}")
+                        st.caption(f"Last seen: {sensor.get('last_seen', 'N/A')[:16]}")
                     
                     with col4:
-                        if st.button("🔧", key=f"sensor_config_{sensor['node_id']}", help="Configure"):
+                        if st.button("🔧", key=f"sensor_config_{sensor.get('node_id')}", help="Configure"):
                             st.session_state.selected_sensor = sensor
+        else:
+            st.error("Could not retrieve sensor data from the API.")
+
 
 def render_realtime_data():
     """Dữ liệu thời gian thực"""
@@ -212,109 +240,87 @@ def render_realtime_data():
         st.warning("Please register a hub first.")
         return
     
+    hub_options = {hub['hub_id']: hub.get('name', hub['hub_id']) for hub in user_hubs}
     selected_hub_id = st.selectbox(
         "Select Hub for Data",
-        options=[hub["hub_id"] for hub in user_hubs],
-        format_func=lambda x: next(hub["name"] for hub in user_hubs if hub["hub_id"] == x),
+        options=list(hub_options.keys()),
+        format_func=lambda x: hub_options[x],
         key="realtime_hub_selector"
     )
     
     if selected_hub_id:
-        # Simulate real-time data
+        client = get_iot_client()
+        latest_data = client.get_latest_data(selected_hub_id)
+
+        if not latest_data or 'data' not in latest_data:
+            st.warning("No recent data available for this hub.")
+            return
+
+        data = latest_data['data']
+        
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("🌡️ Soil Sensors")
-            
-            # Soil moisture
-            soil_moisture = random.uniform(20, 80)
-            st.metric(
-                "Soil Moisture",
-                f"{soil_moisture:.1f}%",
-                delta=f"{random.uniform(-5, 5):.1f}%"
-            )
-            
-            # Soil temperature
-            soil_temp = random.uniform(20, 35)
-            st.metric(
-                "Soil Temperature",
-                f"{soil_temp:.1f}°C",
-                delta=f"{random.uniform(-2, 2):.1f}°C"
-            )
-        
+            if 'soil_nodes' in data and data['soil_nodes']:
+                for node in data['soil_nodes']:
+                    st.metric(
+                        f"Soil Moisture ({node.get('node_id')})",
+                        f"{node['sensors']['soil_moisture']:.1f}%"
+                    )
+                    st.metric(
+                        f"Soil Temperature ({node.get('node_id')})",
+                        f"{node['sensors']['soil_temperature']:.1f}°C"
+                    )
+            else:
+                st.info("No soil sensor data.")
+
         with col2:
             st.subheader("🌤️ Atmospheric Sensors")
-            
-            # Air temperature
-            air_temp = random.uniform(25, 40)
-            st.metric(
-                "Air Temperature",
-                f"{air_temp:.1f}°C",
-                delta=f"{random.uniform(-3, 3):.1f}°C"
-            )
-            
-            # Humidity
-            humidity = random.uniform(40, 90)
-            st.metric(
-                "Humidity",
-                f"{humidity:.1f}%",
-                delta=f"{random.uniform(-10, 10):.1f}%"
-            )
-            
-            # Wind speed
-            wind_speed = random.uniform(0, 15)
-            st.metric(
-                "Wind Speed",
-                f"{wind_speed:.1f} m/s",
-                delta=f"{random.uniform(-2, 2):.1f} m/s"
-            )
-        
+            if 'atmospheric_node' in data:
+                atm_sensors = data['atmospheric_node']['sensors']
+                st.metric("Air Temperature", f"{atm_sensors['air_temperature']:.1f}°C")
+                st.metric("Humidity", f"{atm_sensors['air_humidity']:.1f}%")
+                st.metric("Wind Speed", f"{atm_sensors['wind_speed']:.1f} m/s")
+            else:
+                st.info("No atmospheric sensor data.")
+
         # Data visualization
         st.subheader("📈 Data Trends")
-        
-        # Generate sample time series data
-        import pandas as pd
-        import numpy as np
-        
-        time_range = pd.date_range(start=datetime.now() - timedelta(hours=24), 
-                                 end=datetime.now(), freq='H')
-        
-        data = {
-            'Time': time_range,
-            'Soil Moisture': np.random.normal(50, 10, len(time_range)),
-            'Temperature': np.random.normal(30, 5, len(time_range)),
-            'Humidity': np.random.normal(70, 15, len(time_range))
-        }
-        
-        df = pd.DataFrame(data)
-        
-        # Plot
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-        
-        fig = make_subplots(
-            rows=3, cols=1,
-            subplot_titles=('Soil Moisture (%)', 'Temperature (°C)', 'Humidity (%)'),
-            vertical_spacing=0.1
-        )
-        
-        fig.add_trace(
-            go.Scatter(x=df['Time'], y=df['Soil Moisture'], name='Soil Moisture'),
-            row=1, col=1
-        )
-        
-        fig.add_trace(
-            go.Scatter(x=df['Time'], y=df['Temperature'], name='Temperature'),
-            row=2, col=1
-        )
-        
-        fig.add_trace(
-            go.Scatter(x=df['Time'], y=df['Humidity'], name='Humidity'),
-            row=3, col=1
-        )
-        
-        fig.update_layout(height=600, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        history = client.get_data_history(selected_hub_id, limit=24) # Get last 24 records
+
+        if history and history.get('items'):
+            import pandas as pd
+            
+            df = pd.DataFrame(history['items'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # Extract nested data
+            df['soil_moisture'] = df['data'].apply(lambda d: d['soil_nodes'][0]['sensors']['soil_moisture'] if d.get('soil_nodes') else None)
+            df['air_temperature'] = df['data'].apply(lambda d: d['atmospheric_node']['sensors']['air_temperature'] if d.get('atmospheric_node') else None)
+            df['air_humidity'] = df['data'].apply(lambda d: d['atmospheric_node']['sensors']['air_humidity'] if d.get('atmospheric_node') else None)
+            
+            df = df.sort_values('timestamp')
+
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+            
+            fig = make_subplots(
+                rows=3, cols=1,
+                subplot_titles=('Soil Moisture (%)', 'Air Temperature (°C)', 'Air Humidity (%)'),
+                vertical_spacing=0.1,
+                shared_xaxes=True
+            )
+            
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['soil_moisture'], name='Soil Moisture'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['air_temperature'], name='Air Temperature'), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['air_humidity'], name='Air Humidity'), row=3, col=1)
+            
+            fig.update_layout(height=600, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Not enough historical data to draw trends.")
+
 
 def render_iot_settings():
     """Cài đặt IoT"""
@@ -413,8 +419,9 @@ def render_alerts():
     for hub in user_hubs:
         hub_id = hub.get("hub_id")
         if hub_id:
-            hub_alerts = client.get_alerts(hub_id, limit=20)
-            all_alerts.extend(hub_alerts)
+            hub_alerts_response = client.get_alerts(hub_id, limit=20)
+            if hub_alerts_response and hub_alerts_response.get('items'):
+                all_alerts.extend(hub_alerts_response['items'])
     
     if not all_alerts:
         st.info("No alerts found. Your IoT system is running smoothly! 🎉")

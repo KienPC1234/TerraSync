@@ -39,7 +39,7 @@ def render_profile_settings():
                 phone = st.text_input("Phone Number", value=user_data.get('phone', '') if user_data else '')
             
             with col2:
-                organization = st.text_input("Organization/Farm Name", value=user_data.get('organization', '') if user_data else '')
+                organization = st.text_input("Farm Name", value=user_data.get('organization', '') if user_data else '')
                 role = st.selectbox("Role", ["Farmer", "Farm Manager", "Agricultural Engineer", "Researcher", "Other"])
                 experience = st.selectbox("Farming Experience", ["Beginner (< 1 year)", "Intermediate (1-5 years)", "Advanced (5-10 years)", "Expert (10+ years)"])
             
@@ -165,7 +165,14 @@ def render_preferences():
             push_notifications = st.checkbox("Push notifications", value=preferences.get('push_notifications', True))
             weather_alerts = st.checkbox("Weather alerts", value=preferences.get('weather_alerts', True))
             irrigation_reminders = st.checkbox("Irrigation reminders", value=preferences.get('irrigation_reminders', True))
-        
+            
+            st.write("---")
+            one_signal_player_id = st.text_input(
+                "OneSignal Player ID for Push Notifications",
+                value=user_data.get('one_signal_player_id', '') if user_data else '',
+                help="Find this in your OneSignal account to receive critical alerts on your devices."
+            )
+
         st.write("**Data & Privacy**")
         data_sharing = st.checkbox("Share anonymous usage data for improvement", value=preferences.get('data_sharing', False))
         analytics = st.checkbox("Enable analytics tracking", value=preferences.get('analytics', True))
@@ -183,10 +190,13 @@ def render_preferences():
                 'irrigation_reminders': irrigation_reminders,
                 'data_sharing': data_sharing,
                 'analytics': analytics,
-                'updated_at': datetime.now().isoformat()
             }
             
-            update_data = {'preferences': new_preferences}
+            update_data = {
+                'preferences': new_preferences,
+                'one_signal_player_id': one_signal_player_id,
+                'updated_at': datetime.now().isoformat()
+            }
             
             if user_data:
                 db.update("users", {"email": st.user.email}, update_data)

@@ -34,4 +34,96 @@ Fine-tune YOLO/Gemini cho nông nghiệp Việt Nam (bệnh cây địa phương
 Xây dựng database đám mây (Firebase) lưu trữ dữ liệu IoT lâu dài.
 Mở rộng IoT: Hỗ trợ camera cảm biến cho theo dõi sâu bệnh thời gian thực.
 Phát triển app mobile native với AR xem ruộng ảo.
-Thử nghiệm thực địa: Triển khai hub IoT ở 5 ruộng mẫu để kiểm tra độ bền. TerraSync IoT biến ý tưởng thành hiện thực: Một hệ thống kết nối 
+Thử nghiệm thực địa: Triển khai hub IoT ở 5 ruộng mẫu để kiểm tra độ bền. TerraSync IoT biến ý tưởng thành hiện thực: Một hệ thống kết nối AI-IoT-vệ tinh, giúp nông dân "nói chuyện" với đất đai của mình.
+🌍 TerraSync IoT Data Schema v1
+1. Metadata chung
+{
+  "hub_id": "UUID",               // Mã định danh duy nhất cho hub (được nhập khi đăng ký)
+  "timestamp": "2025-10-22T20:15:00Z",  // ISO 8601 - thời gian ghi nhận dữ liệu
+  "location": {                   // Tùy chọn, có thể bỏ trống nếu hub cố định
+    "lat": 20.450123,
+    "lon": 106.325678
+  },
+  "data": {                       // Dữ liệu tổng hợp từ các nhóm node
+    ...
+  }
+}
+
+
+2. Dữ liệu cảm biến
+{
+  "data": {
+    "soil_nodes": [
+      {
+        "node_id": "soil-01",              // Mã node trong vườn
+        "sensors": {
+          "soil_moisture": 32.5,           // % độ ẩm đất
+          "soil_temperature": 28.1          // °C nhiệt độ đất
+        }
+      },
+      {
+        "node_id": "soil-02",
+        "sensors": {
+          "soil_moisture": 45.2,
+          "soil_temperature": 26.9
+        }
+      }
+    ],
+    "atmospheric_node": {
+      "node_id": "atm-01",
+      "sensors": {
+        "air_temperature": 31.3,          // °C
+        "air_humidity": 68.4,             // %
+        "rain_intensity": 0,              // mm/h hoặc 1/0 nếu chỉ có cảm biến mưa
+        "wind_speed": 2.1,                // m/s
+        "light_intensity": 820,           // Lux
+        "barometric_pressure": 1008.5     // hPa
+      }
+    }
+  }
+}
+
+
+3. Ví dụ dữ liệu thực tế gửi lên server
+{
+  "hub_id": "c72b56e1-1b9a-46a8-a7b8-0a6ef27b3b72",
+  "timestamp": "2025-10-22T13:42:00Z",
+  "location": { "lat": 20.4512, "lon": 106.3312 },
+  "data": {
+    "soil_nodes": [
+      {
+        "node_id": "soil-01",
+        "sensors": { "soil_moisture": 31.4, "soil_temperature": 27.8 }
+      },
+      {
+        "node_id": "soil-02",
+        "sensors": { "soil_moisture": 40.1, "soil_temperature": 26.2 }
+      }
+    ],
+    "atmospheric_node": {
+      "node_id": "atm-01",
+      "sensors": {
+        "air_temperature": 30.7,
+        "air_humidity": 70.2,
+        "rain_intensity": 0,
+        "wind_speed": 1.8,
+        "light_intensity": 950,
+        "barometric_pressure": 1007.6
+      }
+    }
+  }
+}
+
+
+4. API Endpoint Gợi Ý
+POST /api/v1/data/ingest
+Content-Type: application/json
+Body: (the schema above)
+
+Phản hồi:
+{
+  "status": "success",
+  "hub_id": "c72b56e1-1b9a-46a8-a7b8-0a6ef27b3b72",
+  "received_at": "2025-10-22T13:42:01Z"
+}
+

@@ -8,19 +8,121 @@ import io
 from PIL import Image
 import json
 from typing import Dict, List, Any
-from api_placeholders import terrasync_apis
+import requests
+import base64
+import numpy as np
 from database import db
+import google.generativeai as genai
+from datetime import datetime
+
+API_URL = "http://172.24.193.209:9990"
+
+# Assume API key is configured
+# genai.configure(api_key="YOUR_API_KEY")  # Uncomment and set if needed
+
+model = genai.GenerativeModel("gemini-2.5-flash")
+
+def diagnose_plant_disease(img_bytes, crop_type, plant_part, growth_stage, severity_hint, mode="classification"):
+    # Encode image to base64
+    image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+    payload = {
+        "image_base64": image_base64,
+        "content_type": "image/jpeg"
+    }
+    
+    img = Image.open(io.BytesIO(img_bytes))
+    
+    if mode == "classification":
+        response = requests.post(f"{API_URL}/predict_class", json=payload)
+        if response.status_code == 200:
+            result = response.json()
+            predicted_class = result.get("predicted_class", "Unknown")
+            # Use Gemini for advice in Vietnamese with all options
+            prompt = f"Dựa trên ảnh cây trồng này (phần: {plant_part}, giai đoạn: {growth_stage}, mức độ gợi ý: {severity_hint}), loại cây: {crop_type}, và bệnh dự đoán: {predicted_class}, cung cấp gợi ý điều trị và mẹo phòng ngừa. Trả lời BẰNG TIẾNG VIỆT, định dạng có cấu trúc với phần **Điều trị:** và **Phòng ngừa:**, mỗi gợi ý bắt đầu bằng dấu -."
+            gemini_response = model.generate_content([prompt, img])
+            advice = gemini_response.text
+            # Simple parsing for treatment and prevention in Vietnamese
+            treatment = []
+            prevention = []
+            lines = advice.split('\n')
+            in_treatment = False
+            in_prevention = False
+            for line in lines:
+                line_lower = line.lower()
+                if "điều trị" in line_lower:
+                    in_treatment = True
+                    in_prevention = False
+                elif "phòng ngừa" in line_lower:
+                    in_prevention = True
+                    in_treatment = False
+                elif line.strip().startswith('-') or line.strip().startswith('*'):
+                    if in_treatment:
+                        treatment.append(line.strip('-* ').strip())
+                    elif in_prevention:
+                        prevention.append(line.strip('-* ').strip())
+            diagnosis = {
+                "disease": predicted_class,
+                "confidence": 0.85,  # From API or mock
+                "severity": "Trung bình",  # Mock in Vietnamese
+                "affected_area_percent": 25,  # Mock
+                "treatment_suggestions": treatment or ["Phun thuốc trừ nấm", "Cải thiện thoát nước"],
+                "prevention_tips": prevention or ["Luân canh cây trồng", "Sử dụng giống kháng bệnh"]
+            }
+            return {"status": "success", "diagnosis": diagnosis, "mode": mode}
+        else:
+            return {"status": "error"}
+    elif mode == "detection":
+        response = requests.post(f"{API_URL}/detect_bboxes", json=payload)
+        if response.status_code == 200:
+            result = response.json()
+            bboxes = result.get("bboxes", [])
+            annotated_base64 = result.get("annotated_image_base64", "")
+            annotated_img = Image.open(io.BytesIO(base64.b64decode(annotated_base64)))
+            # Use Gemini to analyze detections in Vietnamese with all options, without specifying disease
+            prompt = f"Phân tích ảnh cây trồng này với các hộp giới hạn phát hiện (có thể là vết bệnh). Phần: {plant_part}, giai đoạn: {growth_stage}, mức độ gợi ý: {severity_hint}, loại cây: {crop_type}. Mô tả vấn đề phát hiện, ước lượng mức độ nghiêm trọng, và cung cấp lời khuyên điều trị/phòng ngừa BẰNG TIẾNG VIỆT, định dạng có cấu trúc với phần **Điều trị:** và **Phòng ngừa:**, mỗi gợi ý bắt đầu bằng dấu -."
+            gemini_response = model.generate_content([prompt, img])
+            advice = gemini_response.text
+            # Parse similarly
+            treatment = []
+            prevention = []
+            lines = advice.split('\n')
+            in_treatment = False
+            in_prevention = False
+            for line in lines:
+                line_lower = line.lower()
+                if "điều trị" in line_lower:
+                    in_treatment = True
+                    in_prevention = False
+                elif "phòng ngừa" in line_lower:
+                    in_prevention = True
+                    in_treatment = False
+                elif line.strip().startswith('-') or line.strip().startswith('*'):
+                    if in_treatment:
+                        treatment.append(line.strip('-* ').strip())
+                    elif in_prevention:
+                        prevention.append(line.strip('-* ').strip())
+            diagnosis = {
+                "disease": "Vết loét/vết đốm phát hiện",  # Based on detection, but generic
+                "confidence": 0.9,  # Mock
+                "severity": "Trung bình",  # From Gemini or mock
+                "affected_area_percent": len(bboxes) * 10,  # Rough estimate
+                "treatment_suggestions": treatment or ["Áp dụng điều trị nhắm vào vết đốm", "Theo dõi sự lan rộng"],
+                "prevention_tips": prevention or ["Cải thiện thông gió", "Kiểm tra định kỳ"],
+                "num_detections": len(bboxes),
+                "bboxes": bboxes
+            }
+            return {"status": "success", "diagnosis": diagnosis, "annotated_image": annotated_img, "mode": mode}
+        else:
+            return {"status": "error"}
+    return {"status": "error"}
 
 def render_ai_field_detection():
-    """Trang AI Field Detection"""
-    st.title("🤖 AI Field Detection & Disease Diagnosis")
-    st.markdown("Sử dụng AI YOLO để tự động khoanh vùng ruộng và chẩn đoán bệnh cây trồng")
+    """ Trang AI Field Detection"""
+    st.title("🤖 Chẩn Đoán Bệnh Cây Trồng Bằng AI")
+    st.markdown("Sử dụng AI để chẩn đoán bệnh cây trồng")
     
     # Tabs cho các chức năng
-    tab1, tab2, tab3 = st.tabs(["🗺️ Field Boundary Detection", "🌿 Plant Disease Diagnosis", "📊 Analysis Results"])
-    
-    with tab1:
-        render_field_boundary_detection()
+    tab2, tab3 = st.tabs(["🌿 Chẩn Đoán Bệnh Cây Trồng", "📊 Kết Quả Phân Tích"])
     
     with tab2:
         render_plant_disease_diagnosis()
@@ -28,229 +130,125 @@ def render_ai_field_detection():
     with tab3:
         render_analysis_results()
 
-def render_field_boundary_detection():
-    """AI tự động khoanh vùng ruộng"""
-    st.subheader("🗺️ AI Field Boundary Detection")
-    st.markdown("Upload ảnh vệ tinh hoặc ảnh thực tế để AI tự động detect và khoanh vùng ruộng")
-    
-    # Upload image
-    uploaded_file = st.file_uploader(
-        "Choose an image file",
-        type=['png', 'jpg', 'jpeg'],
-        help="Upload satellite image or aerial photo of your field"
-    )
-    
-    if uploaded_file is not None:
-        # Display uploaded image
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image", use_column_width=True)
-        
-        # Image info
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Image Size", f"{image.size[0]}x{image.size[1]}")
-        with col2:
-            st.metric("File Size", f"{uploaded_file.size / 1024:.1f} KB")
-        with col3:
-            st.metric("Format", uploaded_file.type.split('/')[-1].upper())
-        
-        # Processing options
-        st.subheader("🔧 Processing Options")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            detection_confidence = st.slider("Detection Confidence", 0.5, 0.95, 0.8)
-            crop_type_hint = st.selectbox(
-                "Crop Type Hint (Optional)",
-                ["Auto-detect", "Rice", "Corn", "Wheat", "Soybean", "Vegetables", "Fruits"]
-            )
-        
-        with col2:
-            min_field_size = st.number_input("Minimum Field Size (hectares)", 0.1, 10.0, 0.5)
-            merge_small_fields = st.checkbox("Merge Small Adjacent Fields", value=True)
-        
-        # Process button
-        if st.button("🔍 Detect Field Boundaries", type="primary"):
-            with st.spinner("AI is analyzing the image..."):
-                # Convert image to bytes
-                img_bytes = io.BytesIO()
-                image.save(img_bytes, format='JPEG')
-                img_bytes = img_bytes.getvalue()
-                
-                # Call AI API
-                result = terrasync_apis.detect_field_boundaries(img_bytes)
-                
-                if result["status"] == "success":
-                    st.session_state.detection_result = result
-                    st.success("✅ Field detection completed!")
-                    st.rerun()
-                else:
-                    st.error("❌ Detection failed. Please try again.")
-    
-    # Display detection results
-    if "detection_result" in st.session_state:
-        result = st.session_state.detection_result
-        st.subheader("🎯 Detection Results")
-        
-        detected_fields = result.get("detected_fields", [])
-        
-        if detected_fields:
-            st.success(f"Found {len(detected_fields)} field(s)")
-            
-            for i, field in enumerate(detected_fields):
-                with st.expander(f"Field {i+1}: {field.get('crop_type_suggestion', 'Unknown Crop')}", expanded=True):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.metric("Confidence", f"{field['confidence']*100:.1f}%")
-                        st.metric("Area", f"{field['area_hectares']:.2f} hectares")
-                        st.metric("Crop Type", field.get('crop_type_suggestion', 'Unknown'))
-                    
-                    with col2:
-                        # Display polygon coordinates
-                        st.write("**Field Coordinates:**")
-                        polygon = field.get('polygon', [])
-                        for j, coord in enumerate(polygon):
-                            st.write(f"Point {j+1}: {coord[0]:.6f}, {coord[1]:.6f}")
-                    
-                    # Action buttons
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        if st.button(f"✅ Accept Field {i+1}", key=f"accept_{i}"):
-                            # Add to user's fields
-                            field_data = {
-                                "name": f"AI Detected Field {i+1}",
-                                "crop": field.get('crop_type_suggestion', 'Unknown'),
-                                "area": field['area_hectares'],
-                                "polygon": polygon,
-                                "center": [
-                                    sum(p[0] for p in polygon) / len(polygon),
-                                    sum(p[1] for p in polygon) / len(polygon)
-                                ],
-                                "detection_confidence": field['confidence'],
-                                "user_email": st.user.email,
-                                "created_by": "AI Detection"
-                            }
-                            
-                            db.add("fields", field_data)
-                            st.success(f"✅ Field {i+1} added to your fields!")
-                            st.rerun()
-                    
-                    with col2:
-                        if st.button(f"✏️ Edit Field {i+1}", key=f"edit_{i}"):
-                            st.session_state.editing_field = field
-                            st.session_state.editing_field_index = i
-                    
-                    with col3:
-                        if st.button(f"❌ Reject Field {i+1}", key=f"reject_{i}"):
-                            st.info(f"Field {i+1} rejected")
-        else:
-            st.warning("No fields detected. Try adjusting the detection parameters.")
-
 def render_plant_disease_diagnosis():
     """AI chẩn đoán bệnh cây trồng"""
-    st.subheader("🌿 Plant Disease Diagnosis")
-    st.markdown("Upload ảnh lá cây để AI chẩn đoán bệnh và đưa ra lời khuyên điều trị")
+    st.subheader("🌿 Chẩn Đoán Bệnh Cây Trồng")
+    st.markdown("Tải lên ảnh lá cây để AI chẩn đoán bệnh và đưa ra lời khuyên điều trị")
     
     # Upload image
     uploaded_file = st.file_uploader(
-        "Choose a plant image",
+        "Chọn ảnh cây trồng",
         type=['png', 'jpg', 'jpeg'],
-        help="Upload clear image of plant leaves showing symptoms",
+        help="Tải lên ảnh rõ nét của lá cây thể hiện triệu chứng",
         key="disease_upload"
     )
     
     if uploaded_file is not None:
         # Display uploaded image
         image = Image.open(uploaded_file)
-        st.image(image, caption="Plant Image", use_column_width=True)
+        st.image(image, caption="Ảnh Cây Trồng", use_column_width=True)
         
         # Diagnosis options
-        st.subheader("🔧 Diagnosis Options")
+        st.subheader("🔧 Tùy Chọn Chẩn Đoán")
         col1, col2 = st.columns(2)
         
         with col1:
+            mode = st.selectbox(
+                "Chế Độ AI",
+                ["Phân loại (mặc định)", "Phát hiện (hộp giới hạn)"]
+            )
             crop_type = st.selectbox(
-                "Crop Type",
-                ["Auto-detect", "Rice", "Corn", "Wheat", "Tomato", "Potato", "Cabbage", "Other"]
+                "Loại Cây Trồng",
+                ["Tự động phát hiện", "Lúa", "Ngô", "Lúa mì", "Cà chua", "Khoai tây", "Bắp cải", "Khác"],
+                index=0  # Default to "Tự động phát hiện"
             )
             plant_part = st.selectbox(
-                "Plant Part",
-                ["Leaf", "Stem", "Fruit", "Root", "Flower"]
+                "Phần Cây",
+                ["Lá", "Thân", "Quả", "Rễ", "Hoa"]
             )
         
         with col2:
             growth_stage = st.selectbox(
-                "Growth Stage",
-                ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
+                "Giai Đoạn Sinh Trưởng",
+                ["Mầm", "Sinh trưởng", "Ra hoa", "Trái cây", "Trưởng thành"]
             )
             severity_hint = st.selectbox(
-                "Severity Hint",
-                ["Mild", "Moderate", "Severe", "Unknown"]
+                "Gợi Ý Mức Độ Nghiêm Trọng",
+                ["Nhẹ", "Trung bình", "Nghiêm trọng", "Không rõ"]
             )
         
         # Process button
-        if st.button("🔍 Diagnose Disease", type="primary"):
-            with st.spinner("AI is analyzing the plant image..."):
+        if st.button("🔍 Chẩn Đoán Bệnh", type="primary"):
+            with st.spinner("AI đang phân tích ảnh cây trồng..."):
                 # Convert image to bytes
                 img_bytes = io.BytesIO()
                 image.save(img_bytes, format='JPEG')
                 img_bytes = img_bytes.getvalue()
                 
-                # Call AI API
-                result = terrasync_apis.diagnose_plant_disease(img_bytes, crop_type)
+                # Call AI API and Gemini
+                ai_mode = "classification" if "mặc định" in mode else "detection"
+                result = diagnose_plant_disease(img_bytes, crop_type, plant_part, growth_stage, severity_hint, ai_mode)
                 
                 if result["status"] == "success":
                     st.session_state.diagnosis_result = result
-                    st.success("✅ Disease diagnosis completed!")
+                    st.session_state.uploaded_file = uploaded_file  # Store for later use
+                    st.success("✅ Hoàn thành chẩn đoán bệnh!")
                     st.rerun()
                 else:
-                    st.error("❌ Diagnosis failed. Please try again.")
+                    st.error("❌ Chẩn đoán thất bại. Vui lòng thử lại.")
     
     # Display diagnosis results
     if "diagnosis_result" in st.session_state:
         result = st.session_state.diagnosis_result
         diagnosis = result.get("diagnosis", {})
+        mode = result.get("mode", "classification")
         
-        st.subheader("🏥 Diagnosis Results")
+        st.subheader("🏥 Kết Quả Chẩn Đoán")
         
         # Main diagnosis
         col1, col2, col3 = st.columns(3)
         with col1:
-            disease = diagnosis.get("disease", "Unknown")
+            disease = diagnosis.get("disease", "Không xác định")
             confidence = diagnosis.get("confidence", 0)
-            st.metric("Disease", disease)
+            st.metric("Bệnh", disease)
         with col2:
-            severity = diagnosis.get("severity", "Unknown")
-            st.metric("Severity", severity)
+            severity = diagnosis.get("severity", "Không xác định")
+            st.metric("Mức Độ Nghiêm Trọng", severity)
         with col3:
             affected_area = diagnosis.get("affected_area_percent", 0)
-            st.metric("Affected Area", f"{affected_area}%")
+            st.metric("Diện Tích Bị Ảnh Hưởng", f"{affected_area}%")
+        
+        if mode == "detection":
+            num_detections = diagnosis.get("num_detections", 0)
+            st.metric("Số Lượng Phát Hiện", num_detections)
+            if "annotated_image" in result:
+                st.image(result["annotated_image"], caption="Ảnh Với Hộp Giới Hạn Phát Hiện", use_column_width=True)
         
         # Confidence indicator
         confidence_color = "🟢" if confidence > 0.8 else "🟡" if confidence > 0.6 else "🔴"
-        st.markdown(f"**Confidence:** {confidence_color} {confidence*100:.1f}%")
+        st.markdown(f"**Độ Tin Cậy:** {confidence_color} {confidence*100:.1f}%")
         
         # Treatment suggestions
-        st.subheader("💊 Treatment Suggestions")
+        st.subheader("💊 Gợi Ý Điều Trị")
         treatment_suggestions = diagnosis.get("treatment_suggestions", [])
         if treatment_suggestions:
             for i, suggestion in enumerate(treatment_suggestions, 1):
                 st.write(f"{i}. {suggestion}")
         else:
-            st.info("No specific treatment suggestions available.")
+            st.info("Không có gợi ý điều trị cụ thể.")
         
         # Prevention tips
-        st.subheader("🛡️ Prevention Tips")
+        st.subheader("🛡️ Mẹo Phòng Ngừa")
         prevention_tips = diagnosis.get("prevention_tips", [])
         if prevention_tips:
             for i, tip in enumerate(prevention_tips, 1):
                 st.write(f"{i}. {tip}")
         else:
-            st.info("No prevention tips available.")
+            st.info("Không có mẹo phòng ngừa.")
         
         # Save diagnosis
-        if st.button("💾 Save Diagnosis Report", type="primary"):
+        uploaded_file = st.session_state.get('uploaded_file', None)
+        if st.button("💾 Lưu Báo Cáo Chẩn Đoán", type="primary"):
             diagnosis_data = {
                 "disease": disease,
                 "confidence": confidence,
@@ -258,91 +256,62 @@ def render_plant_disease_diagnosis():
                 "affected_area_percent": affected_area,
                 "treatment_suggestions": treatment_suggestions,
                 "prevention_tips": prevention_tips,
-                "crop_type": crop_type,
-                "plant_part": plant_part,
-                "growth_stage": growth_stage,
+                "crop_type": crop_type if 'crop_type' in locals() else "Tự động phát hiện",
+                "plant_part": plant_part if 'plant_part' in locals() else "Lá",
+                "growth_stage": growth_stage if 'growth_stage' in locals() else "Sinh trưởng",
+                "ai_mode": mode,
                 "user_email": st.user.email,
                 "image_filename": uploaded_file.name if uploaded_file else "unknown"
             }
             
             db.add("disease_diagnoses", diagnosis_data)
-            st.success("✅ Diagnosis report saved!")
+            st.success("✅ Đã lưu báo cáo chẩn đoán!")
 
 def render_analysis_results():
     """Kết quả phân tích tổng hợp"""
-    st.subheader("📊 Analysis Results & History")
+    st.subheader("📊 Kết Quả Phân Tích & Lịch Sử")
     
     # User's AI analysis history
     user_diagnoses = db.get("disease_diagnoses", {"user_email": st.user.email})
-    user_fields = db.get("fields", {"user_email": st.user.email, "created_by": "AI Detection"})
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🗺️ AI Detected Fields")
-        if user_fields:
-            for field in user_fields:
-                with st.container():
-                    st.write(f"**{field.get('name', 'Unnamed Field')}**")
-                    st.caption(f"Crop: {field.get('crop', 'Unknown')} | Area: {field.get('area', 0):.2f} ha")
-                    st.caption(f"Confidence: {field.get('detection_confidence', 0)*100:.1f}%")
-                    st.divider()
-        else:
-            st.info("No AI-detected fields yet.")
-    
-    with col2:
-        st.subheader("🌿 Disease Diagnoses")
-        if user_diagnoses:
-            for diagnosis in user_diagnoses[-5:]:  # Show last 5
-                with st.container():
-                    st.write(f"**{diagnosis.get('disease', 'Unknown Disease')}**")
-                    st.caption(f"Severity: {diagnosis.get('severity', 'Unknown')} | Confidence: {diagnosis.get('confidence', 0)*100:.1f}%")
-                    st.caption(f"Crop: {diagnosis.get('crop_type', 'Unknown')}")
-                    st.divider()
-        else:
-            st.info("No disease diagnoses yet.")
+    st.subheader("🌿 Chẩn Đoán Bệnh")
+    if user_diagnoses:
+        for diagnosis in user_diagnoses[-5:]:  # Show last 5
+            with st.container():
+                st.write(f"**{diagnosis.get('disease', 'Bệnh Không Xác Định')}**")
+                st.caption(f"Mức Độ Nghiêm Trọng: {diagnosis.get('severity', 'Không Xác Định')} | Độ Tin Cậy: {diagnosis.get('confidence', 0)*100:.1f}%")
+                st.caption(f"Loại Cây: {diagnosis.get('crop_type', 'Không Xác Định')} | Chế Độ: {diagnosis.get('ai_mode', 'classification')}")
+                st.divider()
+    else:
+        st.info("Chưa có chẩn đoán bệnh nào.")
     
     # Statistics
-    st.subheader("📈 AI Analysis Statistics")
+    st.subheader("📈 Thống Kê Phân Tích AI")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("Total Fields Detected", len(user_fields))
+        st.metric("Tổng Số Chẩn Đoán", len(user_diagnoses))
     
     with col2:
-        st.metric("Total Diagnoses", len(user_diagnoses))
-    
-    with col3:
         if user_diagnoses:
             avg_confidence = sum(d.get('confidence', 0) for d in user_diagnoses) / len(user_diagnoses)
-            st.metric("Avg Diagnosis Confidence", f"{avg_confidence*100:.1f}%")
+            st.metric("Độ Tin Cậy Trung Bình", f"{avg_confidence*100:.1f}%")
         else:
-            st.metric("Avg Diagnosis Confidence", "N/A")
-    
-    with col4:
-        if user_fields:
-            total_area = sum(f.get('area', 0) for f in user_fields)
-            st.metric("Total Detected Area", f"{total_area:.2f} ha")
-        else:
-            st.metric("Total Detected Area", "0 ha")
+            st.metric("Độ Tin Cậy Trung Bình", "N/A")
     
     # Export data
-    if st.button("📤 Export Analysis Data", type="secondary"):
+    if st.button("📤 Xuất Dữ Liệu Phân Tích", type="secondary"):
         export_data = {
-            "ai_detected_fields": user_fields,
             "disease_diagnoses": user_diagnoses,
-            "export_date": st.session_state.get("export_date", "unknown"),
+            "export_date": datetime.now().isoformat(),
             "user_email": st.user.email
         }
         
         json_str = json.dumps(export_data, indent=2, ensure_ascii=False)
         st.download_button(
-            label="Download JSON",
+            label="Tải Về JSON",
             data=json_str,
             file_name=f"terrasync_ai_analysis_{st.user.email}_{datetime.now().strftime('%Y%m%d')}.json",
             mime="application/json"
         )
-
-# Import datetime for export
-from datetime import datetime

@@ -1,117 +1,618 @@
+# file: add_field_app.py
+"""
+Streamlit app - Add Field (full rewrite)
+
+Chú ý:
+- Cấu hình:
+    * API_URL: backend xử lý ảnh vệ tinh (mặc định dùng ENV API_URL hoặc URL cứng)
+    * ROBOFLOW_API_KEY: (khuyến nghị đặt bằng biến môi trường)
+- Cần module `database.py` với object `db` có phương thức:
+    db.get(collection, query) -> list
+    db.add(collection, doc) -> bool
+    db.add_user_field(user_email, field_doc) -> bool
+
+Cài đặt:
+pip install streamlit folium streamlit-folium requests pillow numpy inference-sdk shapely rasterio pyproj
+(Install theo nhu cầu — một số lib đã có trong môi trường của bạn)
+"""
+import os
+import io
+import uuid
+import time
+import base64
+import logging
+import requests
+from requests.adapters import HTTPAdapter, Retry
+from datetime import datetime
+from typing import List, Dict, Tuple, Optional, Any
+
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-import requests
-from database import db
 from folium import plugins
-import io
+from folium.features import GeoJson
+
 from PIL import Image
 import numpy as np
-from datetime import datetime
-from inference_sdk import InferenceHTTPClient
-import uuid
-import os
 
-# Placeholder function to get satellite image for given coordinates and zoom
-def get_satellite_image(lat: float, lon: float, zoom: int = 18, width: int = 800, height: int = 600):
-    """
-    Placeholder: Fetch satellite image for the given location.
-    In a real implementation, use a service like Google Static Maps, Mapbox, or tile compositing.
-    For now, return a dummy image.
-    """
-    # Dummy image generation (replace with actual API call)
-    img = Image.new('RGB', (width, height), color='lightblue')
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='PNG')
-    img_byte_arr = img_byte_arr.getvalue()
-    return img_byte_arr
+# Local imports (bạn đã có module này)
+from database import db
+from inference_sdk import InferenceHTTPClient  # nếu không có, stub hoặc xử lý ngoại lệ
 
-def pixel_to_geo(points, center_lat, center_lon, zoom, img_width, img_height):
-    """
-    Approximate conversion from pixel coordinates to geographic coordinates.
-    This is a simplified model and may not be accurate.
-    A more precise method would use map projection calculations based on the tile source.
-    """
-    # Resolution (meters/pixel) at equator for a given zoom level
-    resolution = 156543.03 * np.cos(np.radians(center_lat)) / (2**zoom)
-    
-    geo_points = []
-    for p in points:
-        # Calculate offset from image center in pixels
-        dx_pixels = p['x'] - img_width / 2
-        dy_pixels = p['y'] - img_height / 2
-        
-        # Convert pixel offset to meters
-        dx_meters = dx_pixels * resolution
-        dy_meters = -dy_pixels * resolution # Y is inverted in pixel vs geo
-        
-        # Convert meter offset to degrees
-        lat_offset = dy_meters / 111320
-        lon_offset = dx_meters / (111320 * np.cos(np.radians(center_lat)))
-        
-        geo_points.append([center_lat + lat_offset, center_lon + lon_offset])
-        
-    return geo_points
+# ------------------------
+# Config & constants
+# ------------------------
+API_URL = os.getenv("API_URL", "http://172.24.193.209:9990")
+ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY", "u5p8jGeuTJwkNwIhPb2x")  # đặt env var cho an toàn
+REQUEST_TIMEOUT = 120  # seconds
+MAX_IMAGE_BYTES = 200 * 1024 * 1024  # 200MB guard
 
-# AI segmentation function using Roboflow API
-def run_ai_segmentation(image_data: bytes, center_lat: float, center_lon: float, zoom: int, width: int, height: int):
-    """AI segmentation using Roboflow - returns multiple detected fields"""
-    
-    # Save image data to a temporary file
-    temp_dir = "/tmp/terrasync"
+# Setup requests session with retries
+_session = requests.Session()
+retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+_session.mount("https://", HTTPAdapter(max_retries=retries))
+_session.mount("http://", HTTPAdapter(max_retries=retries))
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("add_field_app")
+
+
+# ------------------------
+# Utilities
+# ------------------------
+def safe_post_json(url: str, json_data: dict, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
+    """POST with retries and consistent timeout"""
+    resp = _session.post(url, json=json_data, timeout=timeout)
+    return resp
+
+
+def ensure_envs():
+    if not ROBOFLOW_API_KEY:
+        logger.warning("ROBOFLOW_API_KEY not set — Roboflow calls may fail.")
+
+
+# ------------------------
+# Geometry helpers
+# ------------------------
+def calculate_polygon_area(polygon: List[List[float]]) -> float:
+    """
+    polygon: list of [lat, lon] (degrees)
+    returns: area in hectares (approx)
+    """
+    if not polygon or len(polygon) < 3:
+        return 0.0
+    # shoelace on (lon, lat)
+    coords = [(p[1], p[0]) for p in polygon]
+    n = len(coords)
+    area = 0.0
+    for i in range(n):
+        x1, y1 = coords[i]
+        x2, y2 = coords[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    area = abs(area) / 2.0
+    # convert deg^2 to m^2 approximation
+    avg_lat = np.mean([p[0] for p in polygon])
+    avg_lat_rad = np.radians(avg_lat)
+    m_per_deg_lat = 111320.0
+    m_per_deg_lon = 111320.0 * np.cos(avg_lat_rad)
+    area_m2 = area * m_per_deg_lon * m_per_deg_lat
+    return float(area_m2 / 10000.0)
+
+
+def pixel_to_geo_bbox(points: List[dict], bbox_coords: List[List[float]], img_width: int, img_height: int) -> List[List[float]]:
+    """
+    Convert pixel polygon points to geo polygon.
+    - points: list of dicts or lists with x,y
+      Accepts formats: {'x':..., 'y':...} or {'X':..., 'Y':...} or [x,y]
+    - bbox_coords: list of [lat, lon] (UI format)
+    - img_width, img_height: int
+    -> returns geo polygon list of [lat, lon]
+    """
+    # normalize bbox
+    lats = [p[0] for p in bbox_coords]
+    lons = [p[1] for p in bbox_coords]
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+    lat_range = max_lat - min_lat
+    lon_range = max_lon - min_lon
+
+    geo = []
+    for pt in points:
+        if isinstance(pt, dict):
+            x = pt.get("x") or pt.get("X") or pt.get("col") or pt.get("cx")
+            y = pt.get("y") or pt.get("Y") or pt.get("row") or pt.get("cy")
+        elif isinstance(pt, (list, tuple)) and len(pt) >= 2:
+            x, y = pt[0], pt[1]
+        else:
+            raise ValueError("Unsupported point format")
+        x = float(x)
+        y = float(y)
+        x_norm = x / float(max(1, img_width))
+        y_norm = y / float(max(1, img_height))
+        lat = max_lat - y_norm * lat_range
+        lon = min_lon + x_norm * lon_range
+        geo.append([float(lat), float(lon)])
+    return geo
+
+
+# ------------------------
+# Backend image fetcher
+# ------------------------
+def convert_ui_bbox_to_backend(bbox_ui: List[List[float]]) -> List[List[float]]:
+    """
+    UI uses [lat, lon] ordering. Backend expects [lon, lat].
+    Convert list of points from UI->backend.
+    """
+    out = []
+    for p in bbox_ui:
+        if len(p) != 2:
+            raise ValueError("Each bbox point must be [lat, lon]")
+        out.append([float(p[1]), float(p[0])])
+    return out
+
+
+@st.cache_data(ttl=60 * 30, show_spinner=False)
+def get_satellite_image_bbox_cached(bbox_coords_ui: List[List[float]], cloud: float = 70.0, days: int = 100, upscale: int = 1) -> Optional[bytes]:
+    """Cached wrapper for get_satellite_image_bbox"""
+    return get_satellite_image_bbox(bbox_coords_ui, cloud=cloud, days=days, upscale=upscale)
+
+
+def get_satellite_image_bbox(bbox_coords_ui: List[List[float]], cloud: float = 70.0, days: int = 100, upscale: int = 1) -> Optional[bytes]:
+    """
+    Request backend to process satellite image.
+    - bbox_coords_ui: list of [lat, lon] points (UI)
+    Return image bytes or raise Exception.
+    """
+    if not isinstance(bbox_coords_ui, list) or len(bbox_coords_ui) < 3:
+        raise ValueError("bbox_coords must be a list of at least 3 [lat, lon] points")
+
+    # Convert to backend ordering [lon, lat]
+    send_coords = convert_ui_bbox_to_backend(bbox_coords_ui)
+    payload = {
+        "coords": send_coords,
+        "cloud": float(cloud),
+        "days": int(days),
+        "upscale": int(upscale)
+    }
+
+    url = f"{API_URL.rstrip('/')}/process_satellite_image"
+    try:
+        resp = safe_post_json(url, json_data=payload, timeout=REQUEST_TIMEOUT)
+    except Exception as e:
+        logger.exception("Failed to POST to backend")
+        raise Exception(f"Failed to request satellite image: {e}")
+
+    if not resp.ok:
+        text = resp.text[:1000] if resp.text else str(resp.status_code)
+        raise Exception(f"Backend error {resp.status_code}: {text}")
+
+    data = resp.json()
+    if "image_base64" not in data:
+        raise Exception("Backend returned unexpected response (missing image_base64)")
+
+    image_bytes = base64.b64decode(data["image_base64"])
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        logger.warning("Image bytes larger than MAX limit")
+    return image_bytes
+
+
+# ------------------------
+# AI segmentation (Roboflow) wrapper
+# ------------------------
+def run_ai_segmentation(image_data: bytes, bbox_coords_ui: List[List[float]], width: int, height: int) -> List[Dict[str, Any]]:
+    """
+    Run Roboflow inference workflow and convert predictions to geo polygons.
+    - image_data: bytes of image
+    - bbox_coords_ui: list [lat, lon] mapping to the image
+    - width/height: image dimensions
+    Returns list of detected fields: dict with 'polygon', 'confidence', 'area_hectares', 'crop_type_suggestion'
+    """
+    ensure_envs()
+    temp_dir = os.path.join("/tmp", "terrasync")
     os.makedirs(temp_dir, exist_ok=True)
-    temp_image_path = os.path.join(temp_dir, f"{uuid.uuid4()}.jpg")
-    
-    with open(temp_image_path, "wb") as f:
+    tmp_path = os.path.join(temp_dir, f"{uuid.uuid4()}.png")
+    with open(tmp_path, "wb") as f:
         f.write(image_data)
 
     try:
-        # Connect to Roboflow workflow
-        client = InferenceHTTPClient(
-            api_url="https://serverless.roboflow.com",
-            api_key="u5p8jGeuTJwkNwIhPb2x"
-        )
-
-        # Run workflow on the image
+        client = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
         result = client.run_workflow(
             workspace_name="tham-hoa-thin-nhin",
             workflow_id="detect-count-and-visualize-2",
-            images={"image": temp_image_path},
+            images={"image": tmp_path},
             use_cache=True
         )
-        
-        # Process the result
-        detected_fields = []
-        if result and isinstance(result, list) and 'predictions' in result[0]:
-            predictions = result[0]['predictions']
-            for pred in predictions:
-                # Assuming 'points' are the polygon vertices in pixel coordinates
-                if 'points' in pred and 'confidence' in pred:
-                    pixel_points = pred['points']
-                    
-                    # Convert pixel coordinates to geo coordinates
-                    geo_polygon = pixel_to_geo(pixel_points, center_lat, center_lon, zoom, width, height)
-                    
-                    # Calculate area
-                    area_hectares = calculate_polygon_area(geo_polygon)
-                    
-                    detected_fields.append({
-                        'polygon': geo_polygon,
-                        'confidence': pred['confidence'],
-                        'area_hectares': area_hectares,
-                        'crop_type_suggestion': pred.get('class', 'Unknown')
-                    })
-        return detected_fields
-
+        detected = []
+        if not result or not isinstance(result, list):
+            return detected
+        first = result[0]
+        preds = first.get("predictions", [])
+        for pred in preds:
+            if not isinstance(pred, dict):
+                continue
+            pts = pred.get("points") or pred.get("polygon") or pred.get("bbox_points")
+            conf = pred.get("confidence") or pred.get("score") or 0.0
+            cls = pred.get("class") or pred.get("label") or "Unknown"
+            if not pts:
+                continue
+            # normalize points format if needed
+            try:
+                geo_poly = pixel_to_geo_bbox(pts, bbox_coords_ui, width, height)
+            except Exception as e:
+                logger.exception("pixel->geo failed")
+                continue
+            area_ha = calculate_polygon_area(geo_poly)
+            detected.append({
+                "polygon": geo_poly,
+                "confidence": float(conf),
+                "area_hectares": float(area_ha),
+                "crop_type_suggestion": cls
+            })
+        return detected
     except Exception as e:
-        st.error(f"Lỗi khi gọi Roboflow API: {e}")
-        return []
+        logger.exception("Roboflow inference failed")
+        raise Exception(f"AI segmentation failed: {e}")
     finally:
-        # Clean up the temporary file
-        if os.path.exists(temp_image_path):
-            os.remove(temp_image_path)
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
 
-# Dictionary với tham số hạt giống có sẵn
+
+# ------------------------
+# UI helpers
+# ------------------------
+def parse_map_data_for_marker(map_data: dict, fallback_lat: float, fallback_lon: float) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Try to extract lat/lon from st_folium's returned map_data.
+    Handles many possible shapes.
+    Returns (lat, lon) or (None, None)
+    """
+    if not map_data:
+        return None, None
+
+    # 1) center
+    center = map_data.get("center")
+    if center:
+        if isinstance(center, dict):
+            lat = center.get("lat") or center.get("latitude") or center.get("Lat")
+            lon = center.get("lng") or center.get("lon") or center.get("longitude") or center.get("Lon")
+            if lat is not None and lon is not None:
+                return float(lat), float(lon)
+        elif isinstance(center, (list, tuple)) and len(center) >= 2:
+            return float(center[0]), float(center[1])
+
+    # 2) last_object_clicked
+    last = map_data.get("last_object_clicked")
+    if last and isinstance(last, dict):
+        loc = last.get("latlng") or last.get("latLng") or last.get("location") or last.get("geometry")
+        if loc:
+            if isinstance(loc, dict):
+                lat = loc.get("lat") or loc.get("latitude")
+                lon = loc.get("lng") or loc.get("lon") or loc.get("longitude")
+                if lat is not None and lon is not None:
+                    return float(lat), float(lon)
+            elif isinstance(loc, (list, tuple)) and len(loc) >= 2:
+                return float(loc[0]), float(loc[1])
+        # GeoJSON style
+        if last.get("geometry") and isinstance(last["geometry"], dict):
+            geom = last["geometry"]
+            coords = geom.get("coordinates")
+            if coords and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                # coords may be [lon, lat]
+                return float(coords[1]), float(coords[0])
+
+    # 3) all_objects
+    objs = map_data.get("all_objects")
+    if objs and isinstance(objs, list) and len(objs) > 0:
+        obj0 = objs[0]
+        if isinstance(obj0, dict):
+            loc = obj0.get("location") or obj0.get("latlng") or obj0.get("geometry")
+            if loc:
+                if isinstance(loc, dict):
+                    lat = loc.get("lat") or loc.get("latitude")
+                    lon = loc.get("lng") or loc.get("lon") or loc.get("longitude")
+                    if lat is not None and lon is not None:
+                        return float(lat), float(lon)
+                elif isinstance(loc, (list, tuple)) and len(loc) >= 2:
+                    return float(loc[0]), float(loc[1])
+            if obj0.get("geometry") and isinstance(obj0["geometry"], dict):
+                coords = obj0["geometry"].get("coordinates")
+                if coords and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    return float(coords[1]), float(coords[0])
+
+    # fallback: bounds center if present
+    bounds = map_data.get("bounds")
+    if bounds and isinstance(bounds, dict):
+        # bounds may have northEast / southWest
+        ne = bounds.get("northEast") or bounds.get("north_east") or bounds.get("ne")
+        sw = bounds.get("southWest") or bounds.get("south_west") or bounds.get("sw")
+        if ne and sw and isinstance(ne, dict) and isinstance(sw, dict):
+            lat = (ne.get("lat") + sw.get("lat")) / 2.0
+            lon = (ne.get("lng") + sw.get("lng")) / 2.0
+            return float(lat), float(lon)
+
+    return None, None
+
+
+# ------------------------
+# Main render function (full)
+# ------------------------
+def render_add_field():
+    st.title("🌾 Add New Field")
+    st.markdown("Set center, draw or use AI to detect field boundary, then save.")
+
+    # Simple login guard - adapt to your auth
+    if not hasattr(st, "user") or not getattr(st.user, "is_logged_in", False):
+        st.error("Vui lòng đăng nhập để thêm field")
+        return
+    user_email = st.user.email
+
+    # session defaults
+    defaults = {
+        "lat": 20.450123,
+        "lon": 106.325678,
+        "location_confirmed": False,
+        "draw_selection": "Chưa chọn",
+        "edit_mode": False,
+        "source": None,
+        "polygon": None,
+        "detected_fields": None,
+        "ai_confidence": None,
+        "ai_bbox": None,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    # ---------------- STEP 1 ----------------
+    st.subheader("📍 Step 1 — Set Center Location")
+    st.markdown("Drag the red pin or confirm the coordinate. Map is shown first so we can capture marker drag safely.")
+
+    # --- 1) Draw map first (so we can parse map_data BEFORE creating widgets 'lat'/'lon') ---
+    map_lat = float(st.session_state.lat)
+    map_lon = float(st.session_state.lon)
+    m = folium.Map(location=[map_lat, map_lon], zoom_start=18,
+                   tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                   attr='Esri World Imagery')
+    folium.Marker([map_lat, map_lon], popup="Kéo tôi đến trung tâm", icon=folium.Icon(color='red'), draggable=True).add_to(m)
+
+    # request richer returned objects
+    map_data = st_folium(m, width=700, height=400, key="center_map",
+                         returned_objects=["all_objects", "last_object_clicked", "center", "bounds"])
+
+    # --- 2) Parse new coords from map_data BEFORE we create input widgets ---
+    new_lat, new_lon = parse_map_data_for_marker(map_data, map_lat, map_lon)
+    if new_lat is not None and new_lon is not None:
+        # only update if changed significantly to avoid noisy updates
+        if abs(new_lat - st.session_state.lat) > 1e-7 or abs(new_lon - st.session_state.lon) > 1e-7:
+            # safe: number_input with key 'lat'/'lon' not yet instantiated (we haven't created them below)
+            st.session_state["lat"] = float(new_lat)
+            st.session_state["lon"] = float(new_lon)
+            # display user feedback
+            st.success(f"📍 Center đã cập nhật: {new_lat:.6f}, {new_lon:.6f}")
+
+    # --- 3) Now create the input widgets (they use the possibly-updated session_state values) ---
+    col1, col2, col3 = st.columns([2, 2, 3])
+    with col1:
+        st.number_input("Vĩ độ (Latitude)", value=st.session_state.lat, format="%.6f", key="lat")
+    with col2:
+        st.number_input("Kinh độ (Longitude)", value=st.session_state.lon, format="%.6f", key="lon")
+    with col3:
+        field_name = st.text_input("Tên Field", placeholder="Vườn A...", key="field_name")
+
+    # Confirm button to open next steps
+    if st.button("Xác nhận Vị trí & Tiếp Tục", key="confirm_loc"):
+        st.session_state.location_confirmed = True
+
+    st.divider()
+
+    if not st.session_state.location_confirmed:
+        st.info("👆 Nhấn 'Xác nhận Vị trí & Tiếp Tục' để mở Step 2.")
+        return
+
+    # ---------------- Step 2 ----------------
+    st.subheader("🎯 Step 2 — Define Field Boundary (Draw or AI)")
+    has_polygon = st.session_state.polygon is not None
+    is_ai_complete = (st.session_state.source == "ai" and has_polygon and not st.session_state.edit_mode)
+
+    if not has_polygon:
+        mode = st.selectbox("Chọn chế độ vẽ:", ["Chưa chọn", "Vẽ thủ công (Polygon)", "Phát hiện bằng AI (Rectangle)"], key="draw_selection")
+        if mode == "Vẽ thủ công (Polygon)":
+            st.markdown("**🖍️ Vẽ thủ công**: vẽ polygon quanh ruộng.")
+            draw_m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=18,
+                                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
+            folium.Marker([st.session_state.lat, st.session_state.lon], popup="Tâm", icon=folium.Icon(color="green")).add_to(draw_m)
+            plugins.Draw(draw_options={'polygon': True, 'rectangle': False, 'polyline': False, 'circle': False, 'marker': False},
+                         edit_options={'edit': False, 'remove': True}).add_to(draw_m)
+
+            drawn_data = st_folium(draw_m, width=700, height=400, key="draw_map", returned_objects=["last_active_drawing"])
+            if drawn_data and drawn_data.get("last_active_drawing"):
+                drawing = drawn_data["last_active_drawing"]
+                geom = drawing.get("geometry", {})
+                if geom.get("type") == "Polygon":
+                    coords = geom.get("coordinates", [[]])[0]
+                    st.session_state.polygon = [[c[1], c[0]] for c in coords]
+                    st.session_state.source = "manual"
+                    st.success("✅ Đã lưu polygon (vẽ thủ công).")
+
+        elif mode == "Phát hiện bằng AI (Rectangle)":
+            st.markdown("**🤖 Phát hiện bằng AI**: vẽ rectangle (bbox) rồi nhấn Detect AI.")
+            ai_map = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=18,
+                                tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
+            folium.Marker([st.session_state.lat, st.session_state.lon], popup="Tâm").add_to(ai_map)
+            plugins.Draw(draw_options={'rectangle': True, 'polygon': False, 'polyline': False, 'circle': False, 'marker': False},
+                         edit_options={'edit': False, 'remove': True}).add_to(ai_map)
+            ai_data = st_folium(ai_map, width=700, height=400, key="ai_draw_map", returned_objects=["last_active_drawing"])
+            if ai_data and ai_data.get("last_active_drawing"):
+                drawing = ai_data["last_active_drawing"]
+                geom = drawing.get("geometry", {})
+                if geom.get("type") == "Polygon":
+                    coords = geom.get("coordinates", [[]])[0]
+                    # Save bbox in UI format [lat, lon]
+                    st.session_state.ai_bbox = [[c[1], c[0]] for c in coords]
+                    st.success("✅ Đã vẽ bbox cho AI.")
+
+            if st.button("Detect AI", key="detect_ai") and st.session_state.get("ai_bbox"):
+                with st.spinner("Đang gọi backend lấy ảnh và chạy AI..."):
+                    try:
+                        img_bytes = get_satellite_image_bbox_cached(st.session_state.ai_bbox, cloud=70.0, days=100, upscale=1)
+                        if not img_bytes:
+                            st.error("Không nhận được ảnh từ backend.")
+                        else:
+                            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                            st.image(img, caption="Ảnh Vệ Tinh", use_container_width=True)
+                            w, h = img.size
+                            fields = run_ai_segmentation(img_bytes, st.session_state.ai_bbox, w, h)
+                            if fields:
+                                st.session_state.detected_fields = fields
+                                st.session_state.source = "ai"
+                                # pick first automatically and enable edit
+                                st.session_state.polygon = fields[0]["polygon"]
+                                st.session_state.ai_confidence = fields[0]["confidence"]
+                                # update center to polygon centroid
+                                st.session_state.lat = float(np.mean([p[0] for p in st.session_state.polygon]))
+                                st.session_state.lon = float(np.mean([p[1] for p in st.session_state.polygon]))
+                                st.success(f"Phát hiện {len(fields)} vùng. Hiển thị vùng đầu tiên để chỉnh sửa.")
+                            else:
+                                st.error("AI không phát hiện vùng nào.")
+                    except Exception as e:
+                        st.error(f"Lỗi Detect AI: {e}")
+
+        else:
+            st.info("Chọn chế độ vẽ để tiếp tục.")
+    elif is_ai_complete:
+        st.markdown("**🌿 Chọn kết quả AI**")
+        det = st.session_state.detected_fields or []
+        if det:
+            idx = st.selectbox("Chọn field:", list(range(len(det))),
+                               format_func=lambda i: f"Field {i+1} — {det[i]['crop_type_suggestion']} ({det[i]['area_hectares']:.2f} ha, {det[i]['confidence']*100:.1f}%)")
+            selected = det[idx]
+            center_lat = float(np.mean([p[0] for p in selected["polygon"]]))
+            center_lon = float(np.mean([p[1] for p in selected["polygon"]]))
+            show_map = folium.Map(location=[center_lat, center_lon], zoom_start=18,
+                                  tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
+            for i, f in enumerate(det):
+                color = "green" if i == idx else "blue"
+                folium.Polygon(f["polygon"], color=color, fill=True, fill_opacity=0.3, popup=f"Field {i+1}").add_to(show_map)
+            st_folium(show_map, width=700, height=400)
+            if st.button("Áp Dụng vùng này"):
+                st.session_state.polygon = selected["polygon"]
+                st.session_state.ai_confidence = selected["confidence"]
+                st.session_state.lat = center_lat
+                st.session_state.lon = center_lon
+                st.session_state.edit_mode = True
+                st.success("Áp dụng vùng AI. Bạn có thể chỉnh sửa (Step 2).")
+    else:
+        # Edit mode (show polygon & allow redraw)
+        st.markdown("**✏️ Chỉnh sửa polygon**")
+        edit_map = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=18,
+                              tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
+        folium.Marker([st.session_state.lat, st.session_state.lon], popup="Tâm").add_to(edit_map)
+        if st.session_state.polygon:
+            geojson = {
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[p[1], p[0]] for p in st.session_state.polygon]]}}]
+            }
+            GeoJson(geojson, style_function=lambda x: {"color": "orange"}).add_to(edit_map)
+        plugins.Draw(draw_options={'polygon': True, 'rectangle': False, 'polyline': False, 'circle': False, 'marker': False},
+                     edit_options={'edit': True, 'remove': True}).add_to(edit_map)
+        edit_data = st_folium(edit_map, width=700, height=400, key="edit_map", returned_objects=["all_drawings"])
+        if edit_data and edit_data.get("all_drawings"):
+            drawings = edit_data.get("all_drawings")
+            if drawings:
+                last = drawings[-1]
+                geom = last.get("geometry", {})
+                if geom.get("type") == "Polygon":
+                    coords = geom.get("coordinates", [[]])[0]
+                    st.session_state.polygon = [[c[1], c[0]] for c in coords]
+                    st.success("Cập nhật polygon thành công.")
+        # finish edit
+        if st.button("Xong Chỉnh Sửa", key="finish_edit"):
+            st.session_state.edit_mode = False
+            st.success("Lưu chỉnh sửa. Bước 3 đã mở.")
+
+    # ---------------- Step 3 ----------------
+    if st.session_state.polygon and not st.session_state.edit_mode and st.session_state.draw_selection != "Chưa chọn":
+        st.divider()
+        st.subheader("📝 Step 3 — Field Details")
+        area_ha = calculate_polygon_area(st.session_state.polygon)
+        st.metric("Diện tích (ha)", f"{area_ha:.2f}")
+
+        with st.form("field_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.text_input("Tên Field", value=field_name or "", key="confirm_name")
+                available = get_available_crops(user_email)
+                crop_options = available + ["Other"]
+                crop_sel = st.selectbox("Loại Cây Trồng", crop_options, key="crop")
+                stage = st.selectbox("Giai Đoạn", ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"], key="stage")
+            with col2:
+                custom_crop = st.text_input("Tên Cây Khác", placeholder="Durian...", key="custom_crop", disabled=(crop_sel != "Other"))
+                crop_coeff = 1.0
+                irr_eff = 85.0
+                if crop_sel == "Other" and custom_crop:
+                    ch = get_crop_characteristics(custom_crop)
+                    st.info(f"Tham số (mặc định) cho {custom_crop}")
+                    crop_coeff = st.number_input("Hệ số Kc", value=ch["crop_coefficient"], min_value=0.1, max_value=3.0, step=0.1, key="kc")
+                    irr_eff = st.number_input("Hiệu suất tưới %", value=ch["irrigation_efficiency"], min_value=50, max_value=100, key="ie")
+                else:
+                    ch = get_crop_characteristics(crop_sel)
+                    st.info(f"Tham số cho {crop_sel}")
+                    crop_coeff = st.number_input("Hệ số Kc", value=ch["crop_coefficient"], min_value=0.1, max_value=3.0, step=0.1, key="kc")
+                    irr_eff = st.number_input("Hiệu suất tưới %", value=ch["irrigation_efficiency"], min_value=50, max_value=100, key="ie")
+
+            submitted = st.form_submit_button("Thêm Field", type="primary")
+            if submitted:
+                if not st.session_state.get("confirm_name"):
+                    st.error("Nhập tên field")
+                else:
+                    name_final = st.session_state.confirm_name
+                    actual_crop = custom_crop if crop_sel == "Other" and custom_crop else crop_sel
+                    add_crop_if_not_exists(actual_crop, user_email)
+                    center_lat = float(np.mean([p[0] for p in st.session_state.polygon]))
+                    center_lon = float(np.mean([p[1] for p in st.session_state.polygon]))
+                    field_doc = {
+                        "name": name_final,
+                        "crop": actual_crop,
+                        "area": area_ha,
+                        "polygon": st.session_state.polygon,
+                        "center": [center_lat, center_lon],
+                        "lat": float(st.session_state.lat),
+                        "lon": float(st.session_state.lon),
+                        "stage": stage,
+                        "crop_coefficient": float(crop_coeff),
+                        "irrigation_efficiency": float(irr_eff),
+                        "status": "hydrated",
+                        "created_at": datetime.utcnow().isoformat()
+                    }
+                    if st.session_state.source == "ai":
+                        field_doc["detection_confidence"] = float(st.session_state.ai_confidence or 0.0)
+                    try:
+                        ok = db.add_user_field(user_email, field_doc)
+                        if ok:
+                            st.success("Thêm field thành công 🎉")
+                            # reset states (only defaults)
+                            for k, v in defaults.items():
+                                st.session_state[k] = v
+                            st.session_state["field_name"] = ""
+                            st.balloons()
+                            # navigate or show list
+                            if st.button("Xem Fields"):
+                                st.session_state.navigate_to = "My Fields"
+                        else:
+                            st.error("Lỗi lưu vào DB.")
+                    except Exception as e:
+                        st.error(f"Lỗi DB khi lưu field: {e}")
+    else:
+        if not st.session_state.polygon:
+            st.info("👆 Hoàn thành vẽ hoặc pick vùng để mở Step 3.")
+
+
+# ------------------------
+# Crop DB helpers (from your original)
+# ------------------------
 CROP_DATABASE = {
     "Rice": {
         "growth_rate": 0.8,
@@ -135,50 +636,6 @@ CROP_DATABASE = {
         "soil_type": "Sandy loam",
         "ph_range": "6.0-7.5"
     },
-    "Wheat": {
-        "growth_rate": 0.7,
-        "water_requirement": 80,
-        "sun_requirement": 8,
-        "crop_coefficient": 0.9,
-        "irrigation_efficiency": 90,
-        "planting_season": "Cool season",
-        "harvest_days": 150,
-        "soil_type": "Loam",
-        "ph_range": "6.0-7.5"
-    },
-    "Soybean": {
-        "growth_rate": 0.6,
-        "water_requirement": 90,
-        "sun_requirement": 8,
-        "crop_coefficient": 0.8,
-        "irrigation_efficiency": 85,
-        "planting_season": "Warm season",
-        "harvest_days": 100,
-        "soil_type": "Well-drained loam",
-        "ph_range": "6.0-7.0"
-    },
-    "Tomato": {
-        "growth_rate": 1.0,
-        "water_requirement": 110,
-        "sun_requirement": 10,
-        "crop_coefficient": 1.2,
-        "irrigation_efficiency": 75,
-        "planting_season": "Warm season",
-        "harvest_days": 75,
-        "soil_type": "Sandy loam",
-        "ph_range": "6.0-6.8"
-    },
-    "Potato": {
-        "growth_rate": 0.8,
-        "water_requirement": 95,
-        "sun_requirement": 8,
-        "crop_coefficient": 1.0,
-        "irrigation_efficiency": 80,
-        "planting_season": "Cool season",
-        "harvest_days": 90,
-        "soil_type": "Sandy loam",
-        "ph_range": "5.0-6.5"
-    },
     "Cabbage": {
         "growth_rate": 0.7,
         "water_requirement": 85,
@@ -192,13 +649,10 @@ CROP_DATABASE = {
     }
 }
 
+
 def get_crop_characteristics(crop_name: str):
-    """Lấy tham số hạt giống từ database hoặc tạo mới"""
-    # Kiểm tra trong database có sẵn
     if crop_name in CROP_DATABASE:
         return CROP_DATABASE[crop_name]
-    
-    # Nếu không có, tạo tham số mặc định
     return {
         "growth_rate": 0.7,
         "water_requirement": 100,
@@ -211,316 +665,29 @@ def get_crop_characteristics(crop_name: str):
         "ph_range": "6.0-7.0"
     }
 
+
 def add_crop_if_not_exists(crop_name: str, user_email: str):
-    """Thêm crop vào database nếu chưa tồn tại"""
-    # Kiểm tra crop đã tồn tại chưa
-    existing_crops = db.get("crops", {"name": crop_name, "user_email": user_email})
-    if existing_crops:
-        return True  # Crop đã tồn tại
-    
-    # Lấy tham số cho crop
-    characteristics = get_crop_characteristics(crop_name)
-    
-    # Thêm crop mới
-    crop_data = {
-        "name": crop_name,
-        **characteristics,
-        "user_email": user_email,
-        "created_at": datetime.now().isoformat(),
-        "is_ai_generated": crop_name not in CROP_DATABASE
-    }
-    return db.add("crops", crop_data)
+    try:
+        existing = db.get("crops", {"name": crop_name, "user_email": user_email})
+        if existing:
+            return True
+        characteristics = get_crop_characteristics(crop_name)
+        crop_data = {"name": crop_name, **characteristics, "user_email": user_email, "created_at": datetime.utcnow().isoformat(), "is_ai_generated": crop_name not in CROP_DATABASE}
+        return db.add("crops", crop_data)
+    except Exception as e:
+        logger.exception("DB error in add_crop_if_not_exists")
+        return False
 
-def get_available_crops(user_email: str):
-    """Lấy danh sách crops có sẵn cho user"""
-    # Lấy crops từ database của user
-    user_crops = db.get("crops", {"user_email": user_email})
-    user_crop_names = [crop["name"] for crop in user_crops]
-    
-    # Kết hợp với crops có sẵn trong CROP_DATABASE
-    all_crops = list(CROP_DATABASE.keys())
-    
-    # Thêm crops từ database của user (tránh trùng lặp)
-    for crop_name in user_crop_names:
-        if crop_name not in all_crops:
-            all_crops.append(crop_name)
-    
-    return sorted(all_crops)
 
-def calculate_polygon_area(polygon):
-    """Calculate area of polygon in hectares (approximate)"""
-    if len(polygon) < 3:
-        return 0.0
-    n = len(polygon)
-    area = 0.0
-    for i in range(n):
-        j = (i + 1) % n
-        area += polygon[i][0] * polygon[j][1]
-        area -= polygon[j][0] * polygon[i][1]
-    area = abs(area) / 2.0
-    # Rough conversion from degrees to m² (assumes small area)
-    area_m2 = area * 111320**2 * np.cos(np.radians(polygon[0][0]))
-    return area_m2 / 10000  # to hectares
+def get_available_crops(user_email: str) -> List[str]:
+    try:
+        user_crops = db.get("crops", {"user_email": user_email}) or []
+        names = [c.get("name") for c in user_crops if c.get("name")]
+        allc = list(CROP_DATABASE.keys())
+        for n in names:
+            if n not in allc:
+                allc.append(n)
+        return sorted(allc)
+    except Exception:
+        return sorted(list(CROP_DATABASE.keys()))
 
-def render_add_field():
-    st.title("🌾 Add New Field")
-    st.markdown("Tạo field mới: Nhập tọa độ, xem map vệ tinh, vẽ hoặc dùng AI để xác định polygon")
-    
-    # Get user email from Streamlit OAuth
-    if not hasattr(st, 'user') or not st.user.is_logged_in:
-        st.error("Vui lòng đăng nhập để thêm field")
-        return
-    
-    user_email = st.user.email
-    
-    # Step 1: Enter coordinates and field name
-    st.subheader("📍 Nhập Tọa Độ Vườn")
-    col1, col2, col3 = st.columns([2, 2, 3])
-    with col1:
-        lat = st.number_input("Vĩ độ (Latitude)", value=20.450123, format="%.6f", key="lat_input")
-    with col2:
-        lon = st.number_input("Kinh độ (Longitude)", value=106.325678, format="%.6f", key="lon_input")
-    with col3:
-        field_name = st.text_input("Tên Field", placeholder="Nhập tên field", key="field_name")
-    
-    if lat and lon:
-        # Step 2: Satellite Map View
-        st.subheader("🗺️ Map Vệ Tinh")
-        st.markdown("Map zoom đến tọa độ của bạn với ảnh vệ tinh thực tế")
-        
-        # Create map with satellite tiles (Esri World Imagery)
-        m = folium.Map(location=[lat, lon], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri World Imagery')
-        folium.Marker([lat, lon], popup="Tâm Vườn", icon=folium.Icon(color='red', icon='map-marker')).add_to(m)
-        
-        # Display initial map
-        map_data = st_folium(m, width=700, height=400, key="initial_map")
-        
-        st.divider()
-        
-        # Step 3: Define Polygon - Draw or AI
-        st.subheader("🎯 Xác Định Ranh Giới Field (Polygon)")
-        col_draw, col_ai = st.columns(2)
-        
-        # Option 1: Draw Polygon
-        with col_draw:
-            st.markdown("**🖍️ Vẽ Polygon Thủ Công**")
-            if st.button("Bắt Đầu Vẽ Trên Map", key="start_draw"):
-                st.session_state.draw_mode = True
-                st.rerun()
-            
-            if st.session_state.get('draw_mode', False):
-                draw_m = folium.Map(location=[lat, lon], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
-                folium.Marker([lat, lon], popup="Tâm Vườn").add_to(draw_m)
-                
-                # Add Draw control for polygon
-                draw = plugins.Draw(
-                    draw_options={'polyline': False, 'polygon': True, 'rectangle': False, 'circle': False, 'marker': False, 'circlemarker': False},
-                    edit_options={'edit': False, 'remove': True}
-                )
-                draw_m.add_child(draw)
-                
-                drawn_data = st_folium(draw_m, width=700, height=400, key="draw_map", returned_objects=["last_active_drawing"])
-                
-                if drawn_data and 'last_active_drawing' in drawn_data and drawn_data['last_active_drawing']:
-                    if drawn_data['last_active_drawing']['geometry']['type'] == 'Polygon':
-                        polygon_coords = drawn_data['last_active_drawing']['geometry']['coordinates'][0]
-                        st.session_state.polygon = [[coord[1], coord[0]] for coord in polygon_coords]  # Convert [lon, lat] to [lat, lon]
-                        st.session_state.source = "manual"
-                        st.success("✅ Đã vẽ polygon!")
-                        if st.button("Xong Vẽ"):
-                            st.session_state.draw_mode = False
-                st.rerun()
-            else:
-                st.warning("👆 Vẽ polygon trên map (chỉ polygon)")
-        
-        # Option 2: AI Detection
-        with col_ai:
-            st.markdown("**🤖 Sử Dụng AI Phát Hiện**")
-            if st.button("🔍 Chạy AI Trên Khu Vực Này", type="primary", key="run_ai"):
-                with st.spinner("Đang chụp ảnh vệ tinh và phân tích AI..."):
-                    # Run AI - get multiple fields
-                    img_width, img_height = 800, 600
-                    zoom = 18
-                    image_data = get_satellite_image(lat, lon, zoom=zoom, width=img_width, height=img_height)
-                    
-                    # Display captured image
-                    img = Image.open(io.BytesIO(image_data))
-                    st.image(img, caption="Ảnh Vệ Tinh Được Chụp", use_container_width=True)
-                    
-                    # Run AI - get multiple fields
-                    detected_fields = run_ai_segmentation(image_data, lat, lon, zoom, img_width, img_height)
-                    
-                    if detected_fields:
-                        st.session_state.detected_fields = detected_fields
-                        st.session_state.source = "ai"
-                        st.success(f"✅ AI phát hiện {len(detected_fields)} field!")
-                        st.rerun()
-                    else:
-                        st.error("❌ AI không phát hiện được. Thử điều chỉnh tọa độ.")
-        
-        # Display AI detected fields if available
-        if st.session_state.get('source') == "ai" and 'detected_fields' in st.session_state:
-            st.markdown("**🎯 Các Field AI Phát Hiện**")
-            selected_field_idx = st.selectbox(
-                "Chọn 1 field để sử dụng:",
-                options=range(len(st.session_state.detected_fields)),
-                format_func=lambda i: f"Field {i+1}: {st.session_state.detected_fields[i].get('crop_type_suggestion', 'Unknown')} (Diện tích: {st.session_state.detected_fields[i]['area_hectares']:.2f} ha, Độ tin cậy: {st.session_state.detected_fields[i]['confidence']*100:.1f}%)"
-            )
-            selected_polygon = st.session_state.detected_fields[selected_field_idx]['polygon']
-            st.session_state.polygon = selected_polygon
-            st.session_state.ai_confidence = st.session_state.detected_fields[selected_field_idx]['confidence']
-            
-            # Show selected on mini map
-            ai_m = folium.Map(location=[lat, lon], zoom_start=18, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
-            folium.Polygon(locations=selected_polygon, color='green', fill=True, fill_opacity=0.3).add_to(ai_m)
-            st_folium(ai_m, width=400, height=250)
-            
-            if st.button("Sử Dụng Field Này"):
-                st.success("✅ Đã chọn polygon từ AI!")
-        
-        # Step 4: Field Details if polygon available
-        if st.session_state.get('polygon'):
-            st.divider()
-            st.subheader("📝 Thông Tin Field")
-            
-            area = calculate_polygon_area(st.session_state.polygon)
-            st.metric("Diện Tích Tự Động Tính", f"{area:.2f} ha")
-            
-            with st.form("field_details"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Field name already input above, but confirm
-                    st.text_input("Tên Field", value=field_name, key="confirm_name", disabled=True)
-                    
-                    # Lấy danh sách crops có sẵn cho user
-                    available_crops = get_available_crops(user_email)
-                    crop_options = available_crops + ["Other"]
-                    
-                    crop = st.selectbox("Loại Cây Trồng", crop_options)
-                    stage = st.selectbox("Giai Đoạn Sinh Trưởng", 
-                        ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
-                    )
-                
-                with col2:
-                    if crop == "Other":
-                        custom_crop = st.text_input("Nhập Tên Cây Trồng Khác", placeholder="Ví dụ: Durian, Mango, Coffee...")
-                        if custom_crop:
-                            # Lấy tham số cho crop mới
-                            characteristics = get_crop_characteristics(custom_crop)
-                            
-                            st.info(f"🤖 AI đã tạo tham số cho **{custom_crop}**")
-                            
-                            # Hiển thị thông tin crop mới
-                            col_info1, col_info2 = st.columns(2)
-                            with col_info1:
-                                st.metric("Mùa Trồng", characteristics["planting_season"])
-                                st.metric("Ngày Thu Hoạch", f"{characteristics['harvest_days']} ngày")
-                            with col_info2:
-                                st.metric("Loại Đất", characteristics["soil_type"])
-                                st.metric("pH", characteristics["ph_range"])
-                            
-                            crop_coeff = st.number_input("Hệ Số Cây Trồng (AI Dự Đoán)", 
-                                                       value=characteristics["crop_coefficient"], 
-                                                       step=0.1, min_value=0.1, max_value=2.0)
-                            irr_eff = st.number_input("Hiệu Suất Tưới Tiết (%) (AI Dự Đoán)", 
-                                                    value=characteristics["irrigation_efficiency"], 
-                                                    min_value=50, max_value=100)
-                        else:
-                            st.warning("Vui lòng nhập tên cây trồng để AI tạo tham số")
-                            crop_coeff = 1.0
-                            irr_eff = 85
-                    else:
-                        # Lấy tham số cho crop đã có
-                        characteristics = get_crop_characteristics(crop)
-                        
-                        # Hiển thị thông tin crop
-                        st.info(f"📊 Thông tin **{crop}**:")
-                        col_info1, col_info2 = st.columns(2)
-                        with col_info1:
-                            st.metric("Mùa Trồng", characteristics["planting_season"])
-                            st.metric("Ngày Thu Hoạch", f"{characteristics['harvest_days']} ngày")
-                        with col_info2:
-                            st.metric("Loại Đất", characteristics["soil_type"])
-                            st.metric("pH", characteristics["ph_range"])
-                        
-                        crop_coeff = st.number_input("Hệ Số Cây Trồng", 
-                                                   value=characteristics["crop_coefficient"], 
-                                                   step=0.1, min_value=0.1, max_value=2.0)
-                        irr_eff = st.number_input("Hiệu Suất Tưới Tiết (%)", 
-                                                value=characteristics["irrigation_efficiency"], 
-                                                min_value=50, max_value=100)
-                
-                submitted = st.form_submit_button("✅ Thêm Field Vào Farm", type="primary")
-                
-                if submitted:
-                    if not field_name:
-                        st.error("Vui lòng nhập tên field")
-                    else:
-                        # Xác định crop thực tế
-                        actual_crop = custom_crop if crop == "Other" and custom_crop else crop
-                        
-                        # Thêm crop vào database nếu chưa tồn tại
-                        crop_added = add_crop_if_not_exists(actual_crop, user_email)
-                        
-                        if crop_added:
-                            st.success(f"✅ Crop '{actual_crop}' đã được thêm vào database")
-                        else:
-                            st.info(f"ℹ️ Crop '{actual_crop}' đã có trong database")
-                        
-                        center_lat = sum(p[0] for p in st.session_state.polygon) / len(st.session_state.polygon)
-                        center_lon = sum(p[1] for p in st.session_state.polygon) / len(st.session_state.polygon)
-                        
-                        field_data = {
-                            'name': field_name,
-                            'crop': actual_crop,
-                            'area': area,
-                            'polygon': st.session_state.polygon,
-                            'center': [center_lat, center_lon],
-                            'lat': lat,
-                            'lon': lon,
-                            'stage': stage,
-                            'crop_coefficient': crop_coeff,
-                            'irrigation_efficiency': irr_eff,
-                            'status': 'hydrated',
-                            'today_water': 100,
-                            'time_needed': 2,
-                            'progress': 50,
-                            'days_to_harvest': 60
-                        }
-                        
-                        if st.session_state.get('source') == "ai":
-                            field_data['detection_confidence'] = st.session_state.ai_confidence
-                        
-                        # Add field to database
-                        success = db.add_user_field(user_email, field_data)
-                        
-                        if success:
-                            st.success("✅ Field đã được thêm thành công!")
-                            
-                            # Clear session state
-                            for key in ['polygon', 'source', 'draw_mode', 'detected_fields', 'ai_confidence']:
-                                if key in st.session_state:
-                                    del st.session_state[key]
-                            
-                            # Show success message and redirect option
-                            st.balloons()
-                            
-                            col1, col2, col3 = st.columns([1, 2, 1])
-                            with col2:
-                                if st.button("🌾 Xem Fields của tôi", type="primary", use_container_width=True):
-                                    # Set session state to navigate to My Fields
-                                    st.session_state.navigate_to = "My Fields"
-                            
-                            # Auto redirect after 3 seconds
-                            import time
-                            with st.spinner("Đang chuyển hướng đến trang My Fields..."):
-                                time.sleep(2)
-                                st.session_state.navigate_to = "My Fields"
-                                st.rerun()
-                        else:
-                            st.error("❌ Lỗi khi thêm field vào database")
-        else:
-            st.info("👆 Vẽ polygon thủ công hoặc chạy AI để tiếp tục")
-    else:
-        st.warning("Vui lòng nhập tọa độ để bắt đầu")

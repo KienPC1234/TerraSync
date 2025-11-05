@@ -5,28 +5,17 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-10-23T19:37:17.461442",
-      "last_login": "2025-10-28T15:33:41.663168",
+      "last_login": "2025-10-28T23:28:37.504427",
       "is_active": true,
       "id": "6de2c8a0-ec63-4358-8b59-02f269fa59c4",
       "created_at": "2025-10-23T19:37:17.461485",
-      "updated_at": "2025-10-28T15:33:41.663180",
+      "updated_at": "2025-10-28T23:28:37.504461",
       "phone": "",
       "organization": "kien",
       "role": "Farmer",
       "experience": "Beginner (< 1 year)",
       "bio": "",
       "fields": [
-        {
-          "name": "Test Field",
-          "crop": "Rice",
-          "area": 1.5,
-          "lat": 20.45,
-          "lon": 106.32,
-          "stage": "Vegetative",
-          "id": "25edf6b8-b04e-4add-8be5-ad4c2bfa2e35",
-          "user_email": "kienpc872009@gmail.com",
-          "created_at": "2025-10-23T20:47:38.066758"
-        },
         {
           "name": "kien",
           "crop": "Rice",
@@ -215,7 +204,6 @@
       "updated_at": "2025-10-23T20:48:24.074567"
     }
   ],
-  "iot_hubs": [],
   "sensors": [],
   "alerts": [],
   "telemetry_history": [],
@@ -355,50 +343,6 @@
       "id": "400f7674-1f66-478d-8031-845208a8e166",
       "user_email": "kienpc872009@gmail.com",
       "created_at": "2025-10-23T20:56:55.702472"
-    },
-    {
-      "name": "Vườn Ươm 1",
-      "crop": "Mango",
-      "area": 0.4660749770313083,
-      "polygon": [
-        [
-          20.450905,
-          106.325984
-        ],
-        [
-          20.45,
-          106.325324
-        ],
-        [
-          20.449859,
-          106.325592
-        ],
-        [
-          20.450543,
-          106.326295
-        ],
-        [
-          20.450905,
-          106.325984
-        ]
-      ],
-      "center": [
-        20.4504424,
-        106.32583580000001
-      ],
-      "lat": 20.450123,
-      "lon": 106.325678,
-      "stage": "Seedling",
-      "crop_coefficient": 1.0,
-      "irrigation_efficiency": 85,
-      "status": "hydrated",
-      "today_water": 100,
-      "time_needed": 2,
-      "progress": 50,
-      "days_to_harvest": 60,
-      "id": "73660aec-413f-4221-992b-5433eacff133",
-      "user_email": "kienpc872009@gmail.com",
-      "created_at": "2025-10-25T09:12:09.805302"
     },
     {
       "name": "Vườn Ươm 2",

@@ -14,8 +14,12 @@ def send_push_notification(title, message, user_id=None, external_ids: list = No
         user_id (str, optional): OneSignal player ID của người dùng cụ thể. Defaults to None.
         external_ids (list, optional): Danh sách external_id (ví dụ: email) của người dùng. Defaults to None.
     """
-    if not ONESIGNAL_APP_ID or "YOUR_ONESIGNAL" in ONESIGNAL_APP_ID:
-        print("📢 OneSignal is not configured. Skipping push notification.")
+    if not ONESIGNAL_APP_ID or "YOUR_ONESIGNAL" in ONESIGNAL_APP_ID or not ONESIGNAL_API_KEY or "YOUR_ONESIGNAL" in ONESIGNAL_API_KEY:
+        print("################################################################")
+        print("### 📢 WARNING: OneSignal is not configured.                ###")
+        print("### Please set ONESIGNAL_APP_ID and ONESIGNAL_API_KEY in   ###")
+        print("### untils/onesignal.py to enable push notifications.      ###")
+        print("################################################################")
         return {"status": "skipped", "message": "OneSignal not configured"}
 
     payload = {

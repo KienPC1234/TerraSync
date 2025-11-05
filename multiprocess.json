@@ -1,0 +1,15 @@
+{
+  "streamlit_app": [
+    "streamlit",
+    "run",
+    "streamlit_app.py"
+  ],
+  "iot_api": [
+    "python",
+    "iotAPI/main.py"
+  ],
+  "background_job": [
+    "python",
+    "untils/background_job.py"
+  ]
+}

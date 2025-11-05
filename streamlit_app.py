@@ -28,6 +28,7 @@ from utils import (
     get_default_fields,
     get_fields_from_db
 )
+from database import db
 
 
 # -----------------------------
@@ -113,12 +114,7 @@ def update_fields_from_telemetry():
 
 
 def load_iot_snapshot(force: bool = False):
-    if st.session_state.get("demo_mode"):
-        st.session_state.telemetry = deepcopy(SAMPLE_TELEMETRY)
-        st.session_state.history = deepcopy(SAMPLE_HISTORY)
-        st.session_state.alerts = deepcopy(SAMPLE_ALERTS)
-        st.session_state.last_sync = st.session_state.telemetry.get("timestamp")
-    elif force or "telemetry" not in st.session_state:
+    if force or "telemetry" not in st.session_state:
         st.session_state.telemetry = fetch_latest_telemetry()
         st.session_state.history = fetch_history(limit=30)
         st.session_state.alerts = fetch_alerts(limit=20)
@@ -198,19 +194,11 @@ if (datetime.now() - st.session_state.last_poll).total_seconds() > 30:
 with st.sidebar:
     selected = option_menu(
         "🌱 TerraSync",
-        ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask Sprout AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"],
-        icons=["house", "grid", "plus", "calendar", "chat", "wifi", "robot", "satellite", "gear", "question-circle"],
+        ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask CropNet AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"],
+        icons=["house", "grid", "plus", "calendar", "chat", "wifi", "robot", "image", "gear", "question-circle"],
         default_index=0,
         menu_icon="psychiatry"
     )
-
-    demo_toggle = st.toggle("🎛️ Demo Mode", value=st.session_state.demo_mode)
-    if demo_toggle != st.session_state.demo_mode:
-        st.session_state.demo_mode = demo_toggle
-        load_iot_snapshot(force=True)
-        st.rerun()
-
-    st.divider()
     if st.button("🔄 Refresh IoT Data", use_container_width=True):
         load_iot_snapshot(force=True)
         st.session_state.refresh_notice = True
@@ -227,6 +215,10 @@ with st.sidebar:
 # ✅ Header Section
 # -----------------------------
 def render_top_section(location="Paso Robles Farm", Page_Title=""):
+    
+    user_data = db.get_user_by_email(st.user.email)
+    fname= user_data.get('organization', '')
+    location = f"{fname} Farm" if fname else location
     date = datetime.now()
     day = date.strftime("%A")
     formatted_date = date.strftime("%B %d, %Y")
@@ -312,7 +304,7 @@ if selected == "Dashboard":
     render_top_section(Page_Title=f"👋 Welcome back, {st.user.name}")
     render_dashboard()
 
-elif selected == "Ask Sprout AI":
+elif selected == "Ask CropNet AI":
     render_chat()
 
 elif selected == "My Fields":

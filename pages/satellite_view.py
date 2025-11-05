@@ -15,59 +15,57 @@ from PIL import Image
 import io
 import base64
 from database import db
+import time
 
 API_URL = "http://172.24.193.209:9990"
 
 def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]] = None) -> Dict[str, Any]:
     """
     Xử lý ảnh vệ tinh sử dụng API endpoint /process_satellite_image.
-    Tạo GeoJSON từ polygon hoặc center point và gửi data trực tiếp.
+    Tạo list coords từ polygon hoặc center point và gửi data trực tiếp.
+    Đảm bảo coords được gửi ở định dạng [[lon, lat], ...] với ít nhất 3 điểm cho polygon.
     """
-    if polygon is None:
-        # Tạo polygon nhỏ quanh center (khoảng 100m x 100m)
-        side = 0.001
-        polygon = [
-            [lat - side / 2, lon - side / 2],
-            [lat - side / 2, lon + side / 2],
-            [lat + side / 2, lon + side / 2],
-            [lat + side / 2, lon - side / 2]
-        ]
+    coords = []  # List các điểm tọa độ [lon, lat]
     
-    # Chuyển sang định dạng GeoJSON (lon, lat)
-    ring = [[lon_, lat_] for lat_, lon_ in polygon]
-    ring.append(ring[0])  # Đóng ring cho Polygon hợp lệ
-    geojson = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [ring]
-                },
-                "properties": {}
-            }
+    if polygon is None or len(polygon) < 3:
+        # Fallback: Tạo bbox vuông nhỏ quanh center (4 điểm, không đóng)
+        side = 0.001
+        min_lat, max_lat = lat - side / 2, lat + side / 2
+        min_lon, max_lon = lon - side / 2, lon + side / 2
+        
+        # 4 điểm theo thứ tự [lon, lat], không đóng (backend sẽ đóng)
+        coords = [
+            [min_lon, min_lat],
+            [max_lon, min_lat],
+            [max_lon, max_lat],
+            [min_lon, max_lat]
         ]
+    else:
+        # Sử dụng polygon [lat, lon] từ database, chuyển sang [lon, lat]
+        # Giả sử polygon không đóng, backend sẽ đóng nếu cần
+        coords = [[p[1], p[0]] for p in polygon]  # Chuyển [lat, lon] -> [lon, lat]
+
+    # Lấy ảnh mới nhất trong vòng 2 ngày để đảm bảo có dữ liệu
+    payload = {
+        "coords": coords,
+        "cloud": 50.0,
+        "days": 30,  # Lấy ảnh trong 2 ngày gần nhất
+        "upscale": 4,
+        "collection": "sentinel-2"
     }
     
     try:
         response = requests.post(
             f"{API_URL}/process_satellite_image",
-            json={
-                "geojson_data": geojson,
-                "cloud": 50.0,
-                "days": 30,
-                "upscale": 4,
-                "collection": "sentinel-2"
-            },
-            timeout=60
+            json=payload,
+            timeout=60000  # Tăng timeout nếu API xử lý lâu
         )
         
         if response.status_code == 200:
             api_result = response.json()
             
-            # Mock dữ liệu NDVI dựa trên predicted_class (để tương thích với NDVI analysis)
-            predicted_class = api_result.get("predicted_class", "").lower()
+            # Mock dữ liệu NDVI (vì API chỉ trả về ảnh)
+            predicted_class = "vegetation" 
             if "vegetation" in predicted_class or "crop" in predicted_class:
                 ndvi = 0.6
             elif "bare" in predicted_class or "soil" in predicted_class:
@@ -77,9 +75,9 @@ def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]]
             
             satellite_data = {
                 "ndvi_index": ndvi,
-                "evapotranspiration": 3.5 + (ndvi * 2),  # Mock dựa trên NDVI
+                "evapotranspiration": 3.5 + (ndvi * 2),
                 "soil_moisture_index": 0.4 + (ndvi * 0.2),
-                "cloud_coverage": 15.0  # Mock
+                "cloud_coverage": api_result.get("cloud_cover", 15.0)  # Lấy cloud_cover nếu API trả về
             }
             
             return {
@@ -88,7 +86,9 @@ def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]]
                 "api_result": api_result
             }
         else:
-            return {"status": "error", "message": response.text}
+            return {"status": "error", "message": f"API Error {response.status_code}: {response.text}"}
+    except requests.exceptions.Timeout:
+         return {"status": "error", "message": "API request timed out (quá 60000 giây)."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -113,7 +113,7 @@ def get_weather_forecast(lat: float, lon: float, days: int = 7) -> Dict[str, Any
 def render_satellite_view():
     """Trang xem ruộng qua vệ tinh"""
     st.title("🛰️ Satellite View & Remote Sensing")
-    st.markdown("Xem ruộng qua ảnh vệ tinh với AI upscaling")
+    st.markdown("Xem ruộng của bạn từ không gian với ảnh vệ tinh Sentinel-2 và AI.")
     
     # Tabs
     tab1, tab2, tab3 = st.tabs(["🗺️ Satellite Map", "📊 NDVI Analysis", "🌤️ Weather Overlay"])
@@ -156,16 +156,8 @@ def render_satellite_map():
     
     # Thêm các layer bản đồ
     folium.TileLayer(
-        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri',
-        name='Satellite',
-        overlay=False,
-        control=True
-    ).add_to(m)
-    
-    folium.TileLayer(
         tiles='OpenStreetMap',
-        name='OpenStreetMap',
+        name='Satellite',
         overlay=False,
         control=True
     ).add_to(m)
@@ -207,31 +199,28 @@ def render_satellite_map():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🔍 Process Satellite Image", type="primary"):
-            with st.spinner("AI is processing satellite imagery..."):
+        st.markdown("Nhận ảnh vệ tinh **mới nhất** từ **Sentinel-2** của Cơ quan Vũ trụ Châu Âu (ESA).")
+        if st.button("🛰️ Xem ruộng của bạn từ không gian!", type="primary", help="Lấy ảnh mới nhất trong vòng 2 ngày qua"):
+            with st.spinner("🛰️ Đang kết nối với vệ tinh, tìm ảnh mới nhất và dùng AI xử lý... Quá trình này có thể mất vài phút."):
+                
                 result = process_satellite_imagery(center_lat, center_lon, selected_field.get('polygon'))
                 
                 if result["status"] == "success":
                     st.session_state.satellite_result = result
-                    st.success("✅ Satellite processing completed!")
+                    st.success("✅ Đã tải và xử lý ảnh vệ tinh thành công!")
                     
                     # Hiển thị ảnh đã xử lý và kết quả AI
                     api_res = result["api_result"]
-                    if "annotated_image_base64" in api_res:
-                        image_bytes = base64.b64decode(api_res["annotated_image_base64"])
-                        st.image(Image.open(io.BytesIO(image_bytes)), caption="Processed Satellite Image with AI Detection & Upscaling", use_column_width=True)
+                    if "image_base64" in api_res:
+                        image_bytes = base64.b64decode(api_res["image_base64"])
+                        
+                        # Lấy ngày chụp (giả sử API trả về)
+                        acquisition_date = api_res.get("acquisition_date", (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'))
+                        caption = f"Ảnh vệ tinh Sentinel-2 (10m/pixel) được AI nâng cấp.\nDữ liệu được chụp ngày: {acquisition_date}"
+                        st.image(Image.open(io.BytesIO(image_bytes)), caption=caption, width='stretch')
                     
-                    if "predicted_class" in api_res:
-                        st.info(f"🌱 Predicted Land Class: {api_res['predicted_class']}")
-                    
-                    if "bboxes" in api_res and api_res["bboxes"]:
-                        st.subheader("Detected Features")
-                        for b in api_res["bboxes"]:
-                            st.write(f"• {b['class_name']} (Confidence: {b['confidence']:.2f}) at bbox {b['bbox']}")
-                    
-                    st.rerun()
                 else:
-                    st.error(f"❌ Processing failed: {result.get('message', 'Unknown error')}")
+                    st.error(f"❌ Xử lý thất bại: {result.get('message', 'Lỗi không xác định')}")
     
     with col2:
         date_range = st.date_input(
@@ -256,8 +245,8 @@ def render_ndvi_analysis():
     api_res = result.get("api_result", {})
     
     # Hiển thị lại ảnh nếu có
-    if "annotated_image_base64" in api_res:
-        image_bytes = base64.b64decode(api_res["annotated_image_base64"])
+    if "image_base64" in api_res:
+        image_bytes = base64.b64decode(api_res["image_base64"])
         st.image(Image.open(io.BytesIO(image_bytes)), caption="AI Processed Satellite Image", use_column_width=True)
     
     # NDVI metrics

@@ -16,7 +16,7 @@ def render_dashboard():
     # Lấy fields từ database hoặc default
     user_fields = db.get_user_fields(st.user.email) if hasattr(st, 'user') and st.user.is_logged_in else []
     fields = user_fields if user_fields else st.session_state.get("fields") or get_default_fields()
-
+    
     atm = telemetry.get("data", {}).get("atmospheric_node", {}).get("sensors", {})
     soil_nodes = telemetry.get("data", {}).get("soil_nodes", [])
 
@@ -173,7 +173,7 @@ def render_dashboard():
                 selected_farm_data = next((f for f in fields if f.get("name", f"Field {f.get('id', '')}") == selected_farm_name), fields[0])
                 center_lat, center_lon = selected_farm_data.get("center", [20.455, 106.3375])
 
-                m = folium.Map(location=[center_lat, center_lon], zoom_start=15, tiles='OpenStreetMap')
+                m = folium.Map(location=[center_lat, center_lon], zoom_start=15,tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
 
                 # Vẽ từng farm dưới dạng polygon với highlight cho farm được chọn
                 for field in fields:
@@ -273,8 +273,5 @@ def render_dashboard():
         )
     else:
         st.caption("No alerts triggered")
-
-    st.subheader("🤖 AI Insights")
-    st.info("Gemini and YOLO driven insights will appear here once integrated. Upload processing and conversational guidance are coming soon.")
                         
 #render_dashboard()
