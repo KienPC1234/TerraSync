@@ -46,7 +46,8 @@ else:
 # ✅ OneSignal Integration (Client-side JavaScript)
 # -----------------------------
 st.markdown("""
-<script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js"></script>
+<script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js"></script>
 <script>
   window.OneSignal = window.OneSignal || [];
   OneSignal.push(function() {

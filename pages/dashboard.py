@@ -4,44 +4,104 @@ from streamlit_folium import folium_static
 import pandas as pd
 import altair as alt
 from datetime import datetime
-from utils import get_default_fields
-from database import db
+import logging
+# from utils import get_default_fields # <- Không cần thiết khi đọc từ DB
+from database import db # <- Import đối tượng DB thật
 
+# Cấu hình logging
+logger = logging.getLogger(__name__)
+
+# -------------------------------------------------------------------
+# TỐI ƯU: Tải và lọc dữ liệu bằng cache
+# -------------------------------------------------------------------
+@st.cache_data(ttl=60) # Cache dữ liệu trong 60 giây
+def load_dashboard_data(user_email: str):
+    """
+    Tải tất cả dữ liệu cần thiết cho dashboard từ DB
+    và lọc theo user_email.
+    """
+    try:
+        # 1. Lấy các Hubs thuộc về user
+        user_hubs = db.get("iot_hubs", {"user_email": user_email})
+        user_hub_ids = [h['hub_id'] for h in user_hubs]
+        
+        # 2. Lấy các Fields (vườn) thuộc về user
+        # Sử dụng bảng "fields" gốc
+        user_fields = db.get("fields", {"user_email": user_email})
+
+        # 3. Lấy toàn bộ lịch sử telemetry và alerts (vì MockDB filter đơn giản)
+        all_telemetry = db.get("telemetry")
+        all_alerts = db.get("alerts")
+
+        # 4. Lọc telemetry và alerts bằng Python
+        user_history = sorted(
+            [t for t in all_telemetry if t.get('hub_id') in user_hub_ids],
+            key=lambda x: x.get('timestamp', '1970-01-01T00:00:00+00:00')
+        )
+        
+        user_alerts = [
+            a for a in all_alerts if a.get('hub_id') in user_hub_ids
+        ]
+
+        # 5. Xác định bản ghi mới nhất
+        latest_telemetry = user_history[-1] if user_history else {}
+        
+        return latest_telemetry, user_history, user_alerts, user_fields
+
+    except Exception as e:
+        logger.error(f"Lỗi khi tải dữ liệu dashboard: {e}")
+        return {}, [], [], []
+
+# -------------------------------------------------------------------
+# Các hàm tính toán (Không thay đổi)
+# -------------------------------------------------------------------
+def average_soil(entry):
+    data = entry.get("data", {}) if isinstance(entry, dict) else {}
+    nodes = data.get("soil_nodes", [])
+    if not nodes:
+        return None
+    values = [node.get("sensors", {}).get("soil_moisture") for node in nodes if node.get("sensors", {}).get("soil_moisture") is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+def delta(current, previous):
+    if current is None or previous is None:
+        return None
+    return current - previous
+
+# -------------------------------------------------------------------
+# HÀM RENDER CHÍNH
+# -------------------------------------------------------------------
 
 def render_dashboard():
-    st.set_page_config(page_title="Farm Dashboard", page_icon="🌾", layout="wide")
-    telemetry = st.session_state.get("telemetry") or {}
-    history = st.session_state.get("history", [])
-    alerts = st.session_state.get("alerts", [])
-    # Lấy fields từ database hoặc default
-    user_fields = db.get_user_fields(st.user.email) if hasattr(st, 'user') and st.user.is_logged_in else []
-    fields = user_fields if user_fields else st.session_state.get("fields") or get_default_fields()
+    # st.set_page_config(page_title="Farm Dashboard", page_icon="🌾", layout="wide")
     
+    # Kiểm tra login (giả định st.user tồn tại)
+    if not (hasattr(st, 'user') and st.user.email):
+        st.warning("⚠️ Vui lòng đăng nhập để xem Dashboard.")
+        return
+
+    # === 1. Tải dữ liệu ===
+    # Tải dữ liệu đã được cache và lọc cho user
+    telemetry, history, alerts, fields = load_dashboard_data(st.user.email)
+
+    if not fields and not history:
+        st.info("👋 Chào mừng bạn! Hãy thêm Vườn (Field) và Hub IoT để bắt đầu.")
+        return
+
+    # === 2. Tính toán Metrics ===
     atm = telemetry.get("data", {}).get("atmospheric_node", {}).get("sensors", {})
-    soil_nodes = telemetry.get("data", {}).get("soil_nodes", [])
-
-    def average_soil(entry):
-        data = entry.get("data", {}) if isinstance(entry, dict) else {}
-        nodes = data.get("soil_nodes", [])
-        if not nodes:
-            return None
-        values = [node.get("sensors", {}).get("soil_moisture") for node in nodes if node.get("sensors", {}).get("soil_moisture") is not None]
-        if not values:
-            return None
-        return sum(values) / len(values)
-
-    def delta(current, previous):
-        if current is None or previous is None:
-            return None
-        return current - previous
-
+    
     soil_avg = average_soil(telemetry)
     previous_avg = average_soil(history[-2]) if len(history) > 1 else None
     soil_delta = delta(soil_avg, previous_avg)
 
-    prev_atm = history[-2]["data"].get("atmospheric_node", {}).get("sensors", {}) if len(history) > 1 and history[-2].get("data") else {}
+    prev_atm = {}
+    if len(history) > 1 and history[-2].get("data"):
+        prev_atm = history[-2]["data"].get("atmospheric_node", {}).get("sensors", {})
 
-    cols = st.columns(4, border=True)
+    cols = st.columns(4)
     with cols[0]:
         temp = atm.get("air_temperature")
         prev_temp = prev_atm.get("air_temperature")
@@ -64,63 +124,63 @@ def render_dashboard():
         delta_value = delta(wind, prev_wind)
         st.metric("🌬 Wind Speed", label, f"{delta_value:+.1f}" if delta_value is not None else None)
 
-    # ========== FARM SUMMARY ==========
+    st.divider()
+
+    # === 3. FARM SUMMARY ===
     st.subheader("Farm Overview")
+    col1, col2 = st.columns([1.2, 1])
 
-    col1, col2 = st.columns([1.2, 1], border=True)
-
-    field_df = pd.DataFrame(fields)
-    field_df["Area (acres)"] = field_df["area"]
-    crop_summary = field_df.groupby("crop", dropna=False)["Area (acres)"].sum().reset_index().rename(columns={"crop": "Crop"}) if not field_df.empty else pd.DataFrame(columns=["Crop", "Area (acres)"])
-    crop_summary["Percentage"] = (crop_summary["Area (acres)"] / crop_summary["Area (acres)"].sum() * 100).round(1) if not crop_summary.empty else []
-    total_area = field_df["area"].sum() if not field_df.empty else 0
+    if fields:
+        field_df = pd.DataFrame(fields)
+        # Chuyển đổi area (giả sử là ha) sang acres (nếu cần) hoặc giữ nguyên
+        # 1 ha = 2.47105 acres
+        field_df["Area (ha)"] = field_df["area"]
+        crop_summary = field_df.groupby("crop", dropna=False)["Area (ha)"].sum().reset_index().rename(columns={"crop": "Crop"})
+        crop_summary["Percentage"] = (crop_summary["Area (ha)"] / crop_summary["Area (ha)"].sum() * 100).round(1)
+        total_area = field_df["area"].sum()
+    else:
+        field_df = pd.DataFrame(columns=["crop", "area"])
+        crop_summary = pd.DataFrame(columns=["Crop", "Area (ha)"])
+        total_area = 0
 
     with col1:
-        chart = (
-            alt.Chart(crop_summary)
-            .mark_arc(outerRadius=120)
-            .encode(
-                theta=alt.Theta("Area (acres):Q", stack=True),
-                color=alt.Color("Crop:N", legend=alt.Legend(title="Crop")),
-                tooltip=["Crop:N", "Area (acres):Q", "Percentage:Q"]
+        if not crop_summary.empty:
+            chart = (
+                alt.Chart(crop_summary)
+                .mark_arc(outerRadius=120)
+                .encode(
+                    theta=alt.Theta("Area (ha):Q", stack=True),
+                    color=alt.Color("Crop:N", legend=alt.Legend(title="Crop")),
+                    tooltip=["Crop:N", "Area (ha):Q", "Percentage:Q"]
+                )
+                .properties(
+                    title="Crop Distribution",
+                    width=400,
+                    height=400
+                )
             )
-            .properties(
-                title="Crop Layout Preview",
-                width=400,
-                height=400
-            )
-            .configure_title(
-                fontSize=18,
-                fontWeight='bold',
-                anchor='middle'
-            )
-            .configure_legend(
-                orient="bottom"
-            )
-        ) if not crop_summary.empty else None
-
-        if chart:
             st.altair_chart(chart, use_container_width=True)
         else:
-            st.info("No crop data available")
+            st.info("Thêm vườn (field) để xem phân bổ cây trồng.")
 
     with col2:
-        st.metric("🌱 Total Cultivated Area: ", f"{int(total_area):,} acres" if total_area else "N/A")
-
+        st.metric("🌱 Total Cultivated Area: ", f"{total_area:,.2f} ha" if total_area else "N/A")
+        
         st.markdown("### Crop Summary")
         if not crop_summary.empty:
             st.dataframe(
                 crop_summary.style.format({
-                    "Area (acres)": "{:,.2f}",
+                    "Area (ha)": "{:,.2f}",
                     "Percentage": "{:.1f}%"
                 }).hide(axis="index"),
                 use_container_width=True,
             )
         else:
-            st.caption("Add fields to view crop distribution")
+            st.caption("Không có dữ liệu vườn.")
 
-    # ========== FARM MAP ==========
+    st.divider()
     
+    # === 4. FARM MAP & DETAILS ===
     st.subheader("🌾 Farm Map")
 
     col_map, col_details = st.columns([2, 1])
@@ -129,149 +189,191 @@ def render_dashboard():
         with st.container(border=True, height=650):
             st.markdown("### 📋 Farm Details")
             
-            selected_farm = st.selectbox(
-                "Select a farm:",
-                [f.get("name", f"Field {f.get('id', '')}") for f in fields],
-                key="farm_select",
-                help="Chọn vườn để xem chi tiết và highlight trên bản đồ",
-                index=0  # Default to first farm to avoid initial rerun if possible
-            )
-            # Lấy thông tin farm tương ứng
-            farm_data = next((f for f in fields if f.get("name", f"Field {f.get('id', '')}") == selected_farm), None)
-            if farm_data:
-                # Sử dụng columns để layout metrics đẹp hơn
-                col1, col2 = st.columns(2)
+            if fields:
+                # Lọc ra các field có 'polygon' để hiển thị
+                mappable_fields = [f for f in fields if f.get('polygon')]
                 
-                with col1:
-                    st.metric("🌱 Field Name", farm_data.get("name", "Unknown"))
-                    st.metric("📏 Area", farm_data.get("area_display", f"{farm_data.get('area', 0):.2f} acres"))
-                    st.metric("⏳ Days to Harvest", f"{farm_data.get('days_to_harvest', 'N/A')} days")
+                # Tạo selectbox
+                selected_farm = st.selectbox(
+                    "Select a farm:",
+                    [f.get("name", f"Field {f.get('id', '')[:8]}") for f in mappable_fields],
+                    key="farm_select",
+                    help="Chọn vườn để xem chi tiết và highlight trên bản đồ",
+                )
                 
-                with col2:
-                    st.metric("🟢 Status", farm_data.get("status_label", farm_data.get("status", "Unknown")).title())
-                    st.metric("💧 Daily Water Usage", farm_data.get("water_usage", "N/A"))
-                    if farm_data.get("live_moisture") is not None:
-                        st.metric("📡 Soil Moisture", f"{farm_data['live_moisture']}%")
-                    if farm_data.get("soil_temperature") is not None:
-                        st.metric("🔥 Soil Temp", f"{farm_data['soil_temperature']}°C")
+                # Lấy thông tin farm tương ứng
+                farm_data = next((f for f in mappable_fields if f.get("name", f"Field {f.get('id', '')[:8]}") == selected_farm), None)
+                
+                if farm_data:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("🌱 Field Name", farm_data.get("name", "Unknown"))
+                        st.metric("📏 Area", f"{farm_data.get('area', 0):.2f} ha")
+                        st.metric("⏳ Days to Harvest", f"{farm_data.get('days_to_harvest', 'N/A')} days")
                     
-                # Thêm progress bar giả định cho harvest (ví dụ: giả sử total 90 days)
-                progress_value = max(0, min(1, (90 - farm_data.get('days_to_harvest', 90)) / 90))
-                st.progress(progress_value, text=f"Harvest Progress: {int(100 * progress_value)}%")
-                
-                # Thêm info box cho tips
-                with st.expander("💡 Quick Tips", expanded=False):
-                    st.info("AI treatment suggestions coming soon. Monitor telemetry for actionable insights today.")
+                    with col2:
+                        st.metric("🟢 Status", farm_data.get("status", "Unknown").title())
+                        st.metric("💧 Daily Water", f"{farm_data.get('today_water', 'N/A')} m³")
+                        st.metric("🌿 Crop Type", farm_data.get("crop", "N/A"))
+
+                    # Progress bar
+                    days_total = 90 # Giả định
+                    days_left = farm_data.get('days_to_harvest', days_total)
+                    progress_value = max(0, min(1, (days_total - days_left) / days_total))
+                    st.progress(progress_value, text=f"Harvest Progress: {int(100 * progress_value)}%")
+                    
+                    with st.expander("💡 Quick Tips", expanded=False):
+                        st.info("AI treatment suggestions coming soon. Monitor telemetry for actionable insights today.")
+            else:
+                st.info("Không có vườn nào để hiển thị chi tiết.")
 
     with col_map:
         with st.container(border=True, height=650):
-            if fields:
-                # Lấy farm được chọn từ session_state (now set before map)
-                selected_farm_name = st.session_state.get("farm_select", fields[0].get("name", f"Field {fields[0].get('id', '')}"))
-                
-                # Xác định center dựa trên farm được chọn
-                selected_farm_data = next((f for f in fields if f.get("name", f"Field {f.get('id', '')}") == selected_farm_name), fields[0])
-                center_lat, center_lon = selected_farm_data.get("center", [20.455, 106.3375])
+            # Lấy center của map
+            if farm_data and farm_data.get("center"):
+                center_lat, center_lon = farm_data.get("center", [20.455, 106.3375])
+            elif fields and fields[0].get("center"):
+                center_lat, center_lon = fields[0].get("center", [20.455, 106.3375])
+            else:
+                center_lat, center_lon = 20.455, 106.3375 # Default
+            
+            m = folium.Map(location=[center_lat, center_lon], zoom_start=15, tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
 
-                m = folium.Map(location=[center_lat, center_lon], zoom_start=15,tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri')
-
-                # Vẽ từng farm dưới dạng polygon với highlight cho farm được chọn
-                for field in fields:
-                    if "polygon" in field:
-                        # Highlight nếu là farm được chọn
-                        if field.get("name", f"Field {field.get('id', '')}") == selected_farm_name:
-                            color = "#ff0000"
-                            fill_color = "#ff0000"
-                            weight = 4
-                            fill_opacity = 0.6
-                        else:
-                            color = "#3388ff"
-                            fill_color = "#3388ff"
-                            weight = 3
-                            fill_opacity = 0.4
-                        
-                        popup_content = "<br>".join(filter(None, [
-                            f"<b>{field.get('name', 'Field')}</b>",
-                            f"Area: {field.get('area_display', f'{field.get('area', 0):.2f} acres')}" if field.get("area") is not None else None,
-                            f"Days to Harvest: {field.get('days_to_harvest', 'N/A')} days",
-                            f"Status: {field.get('status_label', field.get('status', 'N/A'))}",
-                            f"Water Usage: {field.get('water_usage', 'N/A')}",
-                            f"Soil Moisture: {field.get('live_moisture', 'N/A')}%" if field.get("live_moisture") is not None else None,
-                        ]))
-                        poly = folium.Polygon(
+            # Vẽ từng farm
+            for field in fields:
+                if "polygon" in field and field.get('polygon'):
+                    # Highlight nếu là farm được chọn
+                    is_selected = (farm_data and field.get('id') == farm_data.get('id'))
+                    
+                    color = "#ff0000" if is_selected else "#3388ff"
+                    weight = 4 if is_selected else 3
+                    fill_opacity = 0.6 if is_selected else 0.4
+                    
+                    popup_content = f"""
+                    <b>{field.get('name', 'Field')}</b><br>
+                    Crop: {field.get('crop', 'N/A')}<br>
+                    Area: {field.get('area', 0):.2f} ha<br>
+                    Status: {field.get('status', 'N/A')}
+                    """
+                    
+                    try:
+                        folium.Polygon(
                             locations=field["polygon"],
                             color=color,
                             fill=True,
-                            fill_color=fill_color,
+                            fill_color=color,
                             fill_opacity=fill_opacity,
                             weight=weight,
                             popup=folium.Popup(popup_content, max_width=300)
-                        )
-                        poly.add_to(m)
+                        ).add_to(m)
+                    except Exception as map_e:
+                        logger.warning(f"Không thể vẽ polygon cho field {field.get('id')}: {map_e}")
 
-                        # Marker ở giữa polygon để chọn nhanh, với icon khác cho selected
-                        if "center" in field:
-                            if field.get("name", f"Field {field.get('id', '')}") == selected_farm_name:
-                                icon_color = "red"
-                            else:
-                                icon_color = "green"
-                                
-                            folium.Marker(
-                                location=field["center"],
-                                popup=folium.Popup(f"{field.get('name', 'Field')}", max_width=200),
-                                tooltip=f"Click for {field.get('name', 'Field')}",
-                                icon=folium.Icon(color=icon_color, icon="leaf", prefix="fa")
-                            ).add_to(m)
+                    # Marker ở giữa
+                    if "center" in field:
+                        folium.Marker(
+                            location=field["center"],
+                            popup=folium.Popup(f"{field.get('name', 'Field')}", max_width=200),
+                            tooltip=f"Click for {field.get('name', 'Field')}",
+                            icon=folium.Icon(color="red" if is_selected else "green", icon="leaf", prefix="fa")
+                        ).add_to(m)
 
-                # Zoom to selected farm nếu có
-                if selected_farm_data and "polygon" in selected_farm_data:
-                    bounds = [[p[0], p[1]] for p in selected_farm_data["polygon"]]
-                    m.fit_bounds(bounds, padding=0.1)
+            if farm_data and farm_data.get("polygon"):
+                try:
+                    bounds = [[p[0], p[1]] for p in farm_data["polygon"]]
+                    m.fit_bounds(bounds, padding=(0.001, 0.001))
+                except Exception:
+                    pass # Không zoom được cũng không sao
+            
+            folium_static(m, width="100%", height=630) # Giảm height 1 chút
 
-                folium_static(m, width="100%", height=650)
-            else:
-                st.info("⚠️ No farm location data found in session_state.")
+    st.divider()
 
+    # === 5. Environmental Trends ===
     st.subheader("📈 Environmental Trends")
     history_records = []
+    
+    # Lấy dữ liệu từ 'history' đã được lọc
     for entry in history:
         timestamp = entry.get("timestamp")
-        for node in entry.get("data", {}).get("soil_nodes", []):
-            sensors = node.get("sensors", {})
-            if sensors.get("soil_moisture") is not None:
-                history_records.append(
-                    {
-                        "timestamp": timestamp,
-                        "node_id": node.get("node_id"),
-                        "soil_moisture": sensors.get("soil_moisture"),
-                    }
-                )
+        # Lấy atm data
+        if entry.get("data", {}).get("atmospheric_node", {}).get("sensors", {}):
+            atm_sensors = entry["data"]["atmospheric_node"]["sensors"]
+            history_records.append({
+                "timestamp": timestamp,
+                "Sensor": "Air Temperature",
+                "Value": atm_sensors.get("air_temperature"),
+            })
+            history_records.append({
+                "timestamp": timestamp,
+                "Sensor": "Air Humidity",
+                "Value": atm_sensors.get("air_humidity"),
+            })
+        
+        # Lấy soil data (tính trung bình)
+        avg_moisture = average_soil(entry)
+        if avg_moisture is not None:
+             history_records.append({
+                "timestamp": timestamp,
+                "Sensor": "Soil Moisture (Avg)",
+                "Value": avg_moisture,
+            })
+
     if history_records:
-        history_df = pd.DataFrame(history_records)
+        history_df = pd.DataFrame(history_records).dropna()
         history_df["timestamp"] = pd.to_datetime(history_df["timestamp"])
+        
         line_chart = (
             alt.Chart(history_df)
             .mark_line(point=True)
             .encode(
                 x="timestamp:T",
-                y=alt.Y("soil_moisture:Q", title="Soil Moisture (%)"),
-                color="node_id:N",
-                tooltip=["timestamp:T", "node_id:N", "soil_moisture:Q"],
+                y=alt.Y("Value:Q"),
+                color="Sensor:N",
+                tooltip=["timestamp:T", "Sensor:N", "Value:Q"],
             )
             .properties(height=350)
+            .interactive() # Cho phép zoom/pan
         )
         st.altair_chart(line_chart, use_container_width=True)
     else:
-        st.caption("No telemetry history available yet")
+        st.caption("Không có lịch sử telemetry để vẽ biểu đồ.")
 
+    st.divider()
+
+    # === 6. Active Alerts ===
     st.subheader("🚨 Active Alerts")
     if alerts:
         alerts_df = pd.DataFrame(alerts)
         st.dataframe(
             alerts_df.sort_values("created_at", ascending=False),
             use_container_width=True,
+            column_config={
+                "created_at": st.column_config.DatetimeColumn("Time", format="YYYY-MM-DD HH:mm"),
+                "level": "Level",
+                "message": "Message",
+                "hub_id": "Hub",
+                "node_id": "Node",
+            }
         )
     else:
-        st.caption("No alerts triggered")
-                        
-#render_dashboard()
+        st.success("🎉 Không có cảnh báo nào. Hệ thống hoạt động bình thường!")
+
+# -------------------------------------------------------------------
+# Để chạy file này, bạn cần có file `database.py` 
+# và file app chính (ví dụ `app.py`) có thể gọi `render_dashboard()`
+#
+# Ví dụ file app.py:
+# import streamlit as st
+# from database import db # Phải import db
+# from dashboard_page import render_dashboard # Import hàm này
+#
+# # Giả lập login
+# class MockUser:
+#     email = "kienpc872009@gmail.com" # <-- Sửa email này để test
+#
+# st.user = MockUser()
+# st.user.is_logged_in = True
+#
+# render_dashboard()
+# -------------------------------------------------------------------

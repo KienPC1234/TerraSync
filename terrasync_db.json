@@ -5,11 +5,11 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-10-23T19:37:17.461442",
-      "last_login": "2025-11-07T15:05:27.032642",
+      "last_login": "2025-11-08T09:47:07.893967",
       "is_active": true,
       "id": "6de2c8a0-ec63-4358-8b59-02f269fa59c4",
       "created_at": "2025-10-23T19:37:17.461485",
-      "updated_at": "2025-11-07T15:05:27.032663",
+      "updated_at": "2025-11-08T09:47:07.893989",
       "phone": "",
       "organization": "kien",
       "role": "Farmer",
@@ -205,7 +205,48 @@
     }
   ],
   "sensors": [],
-  "alerts": [],
+  "alerts": [
+    {
+      "hub_id": "hub-01",
+      "node_id": "atm-01",
+      "message": "🌧️ Info: Heavy rain detected (50.0 mm/h) - Skip irrigation",
+      "level": "info",
+      "created_at": "2025-11-08T01:24:30.489561+00:00",
+      "id": "c495d069-7a53-4a6f-80bc-aab1d2ddec59"
+    },
+    {
+      "hub_id": "hub-01",
+      "node_id": "atm-01",
+      "message": "💧 Info: High humidity (100.0%) - Reduce irrigation frequency",
+      "level": "info",
+      "created_at": "2025-11-08T01:24:30.489561+00:00",
+      "id": "92aa66e6-bebd-479b-bfed-ba9b713140bc"
+    },
+    {
+      "hub_id": "hub-01",
+      "node_id": "atm-01",
+      "message": "🌧️ Info: Heavy rain detected (50.0 mm/h) - Skip irrigation",
+      "level": "info",
+      "created_at": "2025-11-08T01:24:36.934239+00:00",
+      "id": "92527b33-3a54-4507-9abb-2a3fb75c402e"
+    },
+    {
+      "hub_id": "hub-01",
+      "node_id": "atm-01",
+      "message": "💧 Info: High humidity (100.0%) - Reduce irrigation frequency",
+      "level": "info",
+      "created_at": "2025-11-08T01:24:36.934239+00:00",
+      "id": "998c7b84-ed19-4aa6-8057-910cdbc59e96"
+    },
+    {
+      "hub_id": "hub-01",
+      "node_id": "atm-01",
+      "message": "💧 Info: High humidity (100.0%) - Reduce irrigation frequency",
+      "level": "info",
+      "created_at": "2025-11-08T01:27:07.536758+00:00",
+      "id": "cd1c8c0d-4cb2-4b97-b592-87b47634c39a"
+    }
+  ],
   "telemetry_history": [],
   "fields": [
     {
@@ -336,13 +377,19 @@
       "crop_coefficient": 1.0,
       "irrigation_efficiency": 85,
       "status": "hydrated",
-      "today_water": 100,
-      "time_needed": 2,
-      "progress": 50,
+      "today_water": 51.2,
+      "time_needed": 1.0,
+      "progress": 20,
       "days_to_harvest": 60,
       "id": "400f7674-1f66-478d-8031-845208a8e166",
       "user_email": "kienpc872009@gmail.com",
-      "created_at": "2025-10-23T20:56:55.702472"
+      "created_at": "2025-10-23T20:56:55.702472",
+      "updated_at": "2025-11-08T09:41:30.012273",
+      "water_saving_mode": false,
+      "weather_adjustment": true,
+      "irrigation_frequency": "Daily",
+      "preferred_time": "Early Morning (6-8 AM)",
+      "max_duration": 4
     },
     {
       "name": "Vườn Ươm 2",
@@ -516,7 +563,7 @@
   "telemetry": [
     {
       "hub_id": "hub-01",
-      "timestamp": "2025-11-07T07:47:24.294000+00:00",
+      "timestamp": "2025-11-08T01:27:06.664000+00:00",
       "location": {
         "latitude": 20.4512,
         "longitude": 106.3312
@@ -548,21 +595,19 @@
         "atmospheric_node": {
           "node_id": "atm-01",
           "sensors": {
-            "air_temperature": 28.0,
-            "air_humidity": 60.0,
-            "rain_intensity": 0.0,
-            "wind_speed": 5.0,
-            "light_intensity": 1000.0,
+            "air_temperature": 28.6,
+            "air_humidity": 100.0,
+            "rain_intensity": 0.5,
+            "wind_speed": 14.4,
+            "light_intensity": 951.0,
             "barometric_pressure": 1012.0
           }
         }
-      },
-      "id": "dd6d140e-ac1c-4371-92ea-416a2106d15c",
-      "created_at": "2025-11-07T14:47:23.963492"
+      }
     },
     {
       "hub_id": "hub-01",
-      "timestamp": "2025-11-07T07:48:50.983000+00:00",
+      "timestamp": "2025-11-08T01:24:36.061000+00:00",
       "location": {
         "latitude": 20.4512,
         "longitude": 106.3312
@@ -594,109 +639,15 @@
         "atmospheric_node": {
           "node_id": "atm-01",
           "sensors": {
-            "air_temperature": 28.0,
-            "air_humidity": 60.0,
-            "rain_intensity": 0.0,
-            "wind_speed": 5.0,
-            "light_intensity": 1000.0,
+            "air_temperature": 28.6,
+            "air_humidity": 100.0,
+            "rain_intensity": 50.0,
+            "wind_speed": 14.4,
+            "light_intensity": 951.0,
             "barometric_pressure": 1012.0
           }
         }
-      },
-      "id": "b9e7cd1f-f177-4617-b5d7-a28ffb8a7b21",
-      "created_at": "2025-11-07T14:48:50.601300"
-    },
-    {
-      "hub_id": "hub-01",
-      "timestamp": "2025-11-07T07:53:58.625000+00:00",
-      "location": {
-        "latitude": 20.4512,
-        "longitude": 106.3312
-      },
-      "data": {
-        "soil_nodes": [
-          {
-            "node_id": "soil-01",
-            "sensors": {
-              "soil_moisture": 35.0,
-              "soil_temperature": 25.0
-            }
-          },
-          {
-            "node_id": "soil-02",
-            "sensors": {
-              "soil_moisture": 40.0,
-              "soil_temperature": 26.0
-            }
-          },
-          {
-            "node_id": "soil-03",
-            "sensors": {
-              "soil_moisture": 30.0,
-              "soil_temperature": 24.0
-            }
-          }
-        ],
-        "atmospheric_node": {
-          "node_id": "atm-01",
-          "sensors": {
-            "air_temperature": 28.0,
-            "air_humidity": 60.0,
-            "rain_intensity": 0.0,
-            "wind_speed": 5.0,
-            "light_intensity": 313.0,
-            "barometric_pressure": 1012.0
-          }
-        }
-      },
-      "id": "f86be3c4-3beb-4529-aafe-cc316882bdd2",
-      "created_at": "2025-11-07T14:53:58.267353"
-    },
-    {
-      "hub_id": "hub-01",
-      "timestamp": "2025-11-07T07:54:34.092000+00:00",
-      "location": {
-        "latitude": 20.4512,
-        "longitude": 106.3312
-      },
-      "data": {
-        "soil_nodes": [
-          {
-            "node_id": "soil-01",
-            "sensors": {
-              "soil_moisture": 35.0,
-              "soil_temperature": 25.0
-            }
-          },
-          {
-            "node_id": "soil-02",
-            "sensors": {
-              "soil_moisture": 40.0,
-              "soil_temperature": 26.0
-            }
-          },
-          {
-            "node_id": "soil-03",
-            "sensors": {
-              "soil_moisture": 30.0,
-              "soil_temperature": 24.0
-            }
-          }
-        ],
-        "atmospheric_node": {
-          "node_id": "atm-01",
-          "sensors": {
-            "air_temperature": 28.0,
-            "air_humidity": 60.0,
-            "rain_intensity": 0.0,
-            "wind_speed": 5.0,
-            "light_intensity": 313.0,
-            "barometric_pressure": 1012.0
-          }
-        }
-      },
-      "id": "46f8380f-a75c-45a1-bb57-e8f886921eef",
-      "created_at": "2025-11-07T14:54:33.731653"
+      }
     }
   ]
 }

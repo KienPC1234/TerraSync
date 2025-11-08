@@ -1,241 +1,301 @@
-# pages/my_schedule.py - Enhanced Schedule View
+# pages/my_schedule.py
 import streamlit as st
 import plotly.express as px
 import pandas as pd
 from database import db
-from api_placeholders import terrasync_apis
 from datetime import datetime, timedelta
+import logging
+
+# Giả định: import hàm get_field_data từ my_fields để xóa cache
+try:
+    from .my_fields import get_field_data
+except ImportError:
+    # Fallback nếu không import được
+    class MockGetFieldData:
+        @staticmethod
+        def clear():
+            pass
+    get_field_data = MockGetFieldData
+
+logger = logging.getLogger(__name__)
+
+# --- Hằng số cho logic tưới tiêu (có thể chỉnh) ---
+MOISTURE_MIN_THRESHOLD = 25.0  # Dưới mức này là 'dehydrated'
+MOISTURE_MAX_THRESHOLD = 75.0  # Trên mức này là 'hydrated'
+RAIN_THRESHOLD_MMH = 1.0       # Mưa (mm/h) để coi là đang tưới
+
+# ===================================================================
+# --- HÀM HELPER ĐỂ LẤY DỮ LIỆU ---
+# ===================================================================
+
+def get_hub_id_for_field(user_email: str, field_id: str) -> str | None:
+    """Helper: Lấy hub_id được gán cho field."""
+    hub = db.get("iot_hubs", {"field_id": field_id, "user_email": user_email})
+    if hub:
+        return hub[0].get('hub_id')
+    return None
+
+@st.cache_data(ttl=300) # Cache 5 phút cho biểu đồ
+def get_field_telemetry_history(user_email: str, field_id: str) -> pd.DataFrame:
+    """
+    Lấy LỊCH SỬ telemetry cho biểu đồ.
+    """
+    hub_id = get_hub_id_for_field(user_email, field_id)
+    if not hub_id:
+        return pd.DataFrame() 
+
+    telemetry_data = db.get("telemetry", {"hub_id": hub_id})
+    if not telemetry_data:
+        return pd.DataFrame()
+    
+    records = []
+    for entry in telemetry_data:
+        timestamp = entry.get("timestamp")
+        data = entry.get("data", {})
+        
+        # Lấy soil moisture (tính trung bình nếu có nhiều node)
+        nodes = data.get("soil_nodes", [])
+        if nodes:
+            values = [n['sensors']['soil_moisture'] for n in nodes if n.get('sensors') and 'soil_moisture' in n['sensors']]
+            if values:
+                avg_moisture = sum(values) / len(values)
+                records.append({
+                    "timestamp": timestamp,
+                    "Metric": "Soil Moisture (Avg)",
+                    "Value": avg_moisture
+                })
+
+        # Lấy air temperature
+        atm_node = data.get("atmospheric_node", {})
+        if atm_node.get('sensors') and 'air_temperature' in atm_node['sensors']:
+            records.append({
+                "timestamp": timestamp,
+                "Metric": "Air Temperature",
+                "Value": atm_node['sensors']['air_temperature']
+            })
+            
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df.sort_values(by="timestamp")
+
+def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
+    """
+    Lấy GÓI TIN telemetry MỚI NHẤT (không cache) để tính toán.
+    """
+    hub_id = get_hub_id_for_field(user_email, field_id)
+    if not hub_id:
+        logger.warning(f"Không tìm thấy hub cho field {field_id}")
+        return None 
+
+    telemetry_data = db.get("telemetry", {"hub_id": hub_id})
+    if not telemetry_data:
+        logger.warning(f"Không tìm thấy telemetry cho hub {hub_id}")
+        return None
+    
+    # Sắp xếp để lấy gói tin mới nhất
+    try:
+        latest_entry = sorted(
+            telemetry_data, 
+            key=lambda x: x.get('timestamp', '1970-01-01T00:00:00+00:00'), 
+            reverse=True
+        )[0]
+    except IndexError:
+        return None
+        
+    data = latest_entry.get("data", {})
+    stats = {
+        "avg_moisture": None,
+        "rain_intensity": 0.0,
+        "timestamp": latest_entry.get('timestamp')
+    }
+
+    # Tính độ ẩm trung bình
+    nodes = data.get("soil_nodes", [])
+    if nodes:
+        values = [n['sensors']['soil_moisture'] for n in nodes if n.get('sensors') and 'soil_moisture' in n['sensors']]
+        if values:
+            stats["avg_moisture"] = sum(values) / len(values)
+
+    # Lấy lượng mưa
+    atm_node = data.get("atmospheric_node", {})
+    if atm_node.get('sensors') and 'rain_intensity' in atm_node['sensors']:
+        stats["rain_intensity"] = atm_node['sensors']['rain_intensity']
+        
+    return stats
+
+
+# ===================================================================
+# --- HÀM RENDER CHÍNH ---
+# ===================================================================
 
 def render_schedule():
-    st.title("📅 Irrigation Schedule & Planning")
-    st.markdown("Manage your irrigation schedule and water planning")
+    st.title("📅 Irrigation Status & Planning")
+    st.markdown("Quản lý lịch tưới và trạng thái tưới tiêu.")
     
-    # Lấy fields từ database
-    user_fields = db.get_user_fields(st.user.email) if hasattr(st, 'user') and st.user.is_logged_in else []
+    if not (hasattr(st, 'user') and st.user.email):
+        st.error("Vui lòng đăng nhập để xem.")
+        return
+        
+    user_fields = db.get("fields", {"user_email": st.user.email})
     
     if not user_fields:
-        st.warning("No fields found. Please add fields first.")
+        st.warning("Không tìm thấy vườn. Vui lòng thêm vườn (field) trước.")
         return
     
     # Field selection
     field_options = {f"{field.get('name', 'Unnamed')} ({field.get('crop', 'Unknown')})": field for field in user_fields}
-    selected_field_name = st.selectbox("Select Field", options=list(field_options.keys()))
+    selected_field_name = st.selectbox("Chọn Vườn", options=list(field_options.keys()))
     selected_field = field_options[selected_field_name]
     
-    # Tabs for different views
-    tab1, tab2, tab3 = st.tabs(["📊 Current Schedule", "🔮 Weather Forecast", "⚙️ Schedule Settings"])
+    # Tabs
+    tab1, tab2 = st.tabs(["📊 Trạng thái hiện tại", "⚙️ Cài đặt tưới"])
     
     with tab1:
-        render_current_schedule(selected_field)
+        render_current_status(selected_field, user_fields)
     
     with tab2:
-        render_weather_forecast(selected_field)
-    
-    with tab3:
         render_schedule_settings(selected_field)
 
-def render_current_schedule(field):
-    """Current irrigation schedule"""
-    st.subheader("📊 Current Irrigation Schedule")
+# ===================================================================
+# --- TAB 1: TRẠNG THÁI HIỆN TẠI (ĐÃ SỬA) ---
+# ===================================================================
+def render_current_status(field, all_fields):
+    """
+    Hiển thị trạng thái tưới tiêu, ưu tiên dữ liệu LIVE từ cảm biến.
+    """
+    st.subheader(f"📊 Trạng thái hiện tại: {field.get('name')}")
     
-    # Generate schedule for selected field
-    if st.button("🔄 Generate New Schedule", type="primary"):
-        with st.spinner("Generating irrigation schedule..."):
-            # Get weather data
-            weather_data = terrasync_apis.get_weather_forecast(
-                field.get('lat', 20.45), 
-                field.get('lon', 106.32), 
-                7
-            )
-            
-            # Calculate irrigation schedule
-            schedule_data = terrasync_apis.calculate_irrigation_schedule(field, weather_data.get('forecast', {}))
-            
-            if schedule_data["status"] == "success":
-                st.session_state.current_schedule = schedule_data
-                st.success("✅ Schedule generated successfully!")
-                st.rerun()
-            else:
-                st.error("❌ Failed to generate schedule")
+    # Nút cập nhật
+    if st.button("🔄 Cập nhật từ cảm biến"):
+        get_field_telemetry_history.clear() # Xóa cache biểu đồ
+        # Không cần xóa cache cho get_latest_telemetry_stats vì nó không cache
+        st.rerun()
+
+    # --- LẤY DỮ LIỆU LIVE ---
+    live_stats = get_latest_telemetry_stats(field.get('user_email'), field.get('id'))
     
-    # Display schedule
-    if "current_schedule" in st.session_state:
-        schedule = st.session_state.current_schedule
+    # --- LẤY DỮ LIỆU TĨNH TỪ DB (để dự phòng) ---
+    db_status = field.get('status', 'hydrated')
+    db_today_water = field.get('today_water', 0)
+    db_time_needed = field.get('time_needed', 0)
+    db_progress = field.get('progress', 0)
+
+    # --- KHAI BÁO BIẾN HIỂN THỊ ---
+    display_status = db_status
+    display_water = db_today_water
+    display_time = db_time_needed
+    display_progress = db_progress
+    
+    status_colors = {
+        'hydrated': '#28a745', # Xanh lá
+        'dehydrated': '#ffc107', # Vàng
+        'severely_dehydrated': '#dc3545' # Đỏ
+    }
+
+    # --- TÍNH TOÁN DYNAMC NẾU CÓ DỮ LIỆU LIVE ---
+    if live_stats and live_stats.get("avg_moisture") is not None:
+        avg_moisture = live_stats["avg_moisture"]
+        rain_intensity = live_stats["rain_intensity"]
         
-        # Summary metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Weekly Water", f"{schedule['total_weekly_water']:.1f} L")
-        with col2:
-            st.metric("Efficiency Rating", schedule['efficiency_rating'])
-        with col3:
-            st.metric("Cost Estimate", f"${schedule['cost_estimate']:.2f}")
-        with col4:
-            st.metric("Field Area", f"{field.get('area', 0):.2f} ha")
+        if rain_intensity > RAIN_THRESHOLD_MMH:
+            display_status = "hydrated"
+            display_progress = 100
+            display_water = 0
+            display_time = 0
+            st.info(f"💧 Cảm biến phát hiện mưa ({rain_intensity} mm/h). Tự động ngưng tưới.")
         
-        # Schedule chart
-        schedule_df = pd.DataFrame(schedule['schedule'])
-        
-        fig = px.bar(
-            schedule_df,
-            x='date',
-                y='water_liters',
-                title='Daily Water Requirements (Next 7 Days)',
-                labels={'water_liters': 'Water (Liters)', 'date': 'Date'},
-                color='water_liters',
-            color_continuous_scale='Blues'
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Detailed schedule table
-        st.subheader("📋 Detailed Schedule")
-        
-        # Format schedule for display
-        display_schedule = []
-        for day in schedule['schedule']:
-            display_schedule.append({
-                'Date': day['date'],
-                'Water (L)': f"{day['water_liters']:.1f}",
-                'Irrigation Time': day['irrigation_time'],
-                'Duration (min)': day['duration_minutes'],
-                'Efficiency': f"{day['efficiency']*100:.1f}%"
-            })
+        elif avg_moisture < MOISTURE_MIN_THRESHOLD:
+            display_status = "dehydrated"
+            # Tính toán % tiến độ (ví dụ: 0-25% là 0)
+            display_progress = 0 
+            display_water = db_today_water # Lấy khuyến nghị từ DB
+            display_time = db_time_needed    # Lấy khuyến nghị từ DB
+            st.warning(f" Sensors detect low moisture: {avg_moisture:.1f}%.")
+
+        elif avg_moisture > MOISTURE_MAX_THRESHOLD:
+            display_status = "hydrated"
+            display_progress = 100
+            display_water = 0
+            display_time = 0
             
-        st.dataframe(
-                pd.DataFrame(display_schedule),
-                use_container_width=True,
-                hide_index=True
-            )
+        else: # Độ ẩm trong ngưỡng OK (ví dụ: 25% - 75%)
+            display_status = "hydrated"
+            # Tính toán tiến độ dựa trên ngưỡng
+            progress_range = MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD
+            current_progress = avg_moisture - MOISTURE_MIN_THRESHOLD
+            display_progress = int((current_progress / progress_range) * 100)
             
-            # Export schedule
-        if st.button("📤 Export Schedule"):
-            csv = pd.DataFrame(display_schedule).to_csv(index=False)
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f"irrigation_schedule_{field.get('name', 'field')}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+            # Tính toán lượng nước/thời gian còn lại (tỷ lệ nghịch với tiến độ)
+            remaining_factor = 1.0 - (display_progress / 100.0)
+            display_water = round(db_today_water * remaining_factor, 1)
+            display_time = round(db_time_needed * remaining_factor, 1)
+
+        try:
+            ts = datetime.fromisoformat(live_stats['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
+            st.caption(f"Trạng thái live tính toán từ cảm biến (lúc {ts})")
+        except:
+            st.caption(f"Trạng thái live tính toán từ cảm biến.")
+
     else:
-        st.info("Click 'Generate New Schedule' to create your irrigation plan")
+        st.error("Không tìm thấy dữ liệu cảm biến (Hub/Sensor offline?). Hiển thị dữ liệu đã lưu cuối cùng.")
+    
+    # --- Hiển thị các chỉ số (Metrics) ---
+    st.markdown(f"**Trạng thái tưới:** <span style='color:{status_colors.get(display_status, '#6c757d')}; font-weight:bold;'>{display_status.title().replace('_', ' ')}</span>", unsafe_allow_html=True)
 
-def render_weather_forecast(field):
-    """Weather forecast and recommendations"""
-    st.subheader("🌤️ Weather Forecast & Recommendations")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Water Needed Today", f"{display_water} m³")
+    with col2:
+        st.metric("Time Needed", f"{display_time} hours")
+    with col3:
+        st.metric("Progress", f"{display_progress}%")
     
-    # Get weather forecast
-    if st.button("🌤️ Get Weather Forecast", type="primary"):
-        with st.spinner("Fetching weather data..."):
-            weather_data = terrasync_apis.get_weather_forecast(
-                field.get('lat', 20.45), 
-                field.get('lon', 106.32), 
-                7
-            )
-            
-            if weather_data["status"] == "success":
-                st.session_state.weather_forecast = weather_data
-                st.success("✅ Weather data retrieved!")
-                st.rerun()
-            else:
-                st.error("❌ Failed to get weather data")
+    st.progress(display_progress, text=f"Watering Progress: {display_progress}%")
+
+    # --- Chi tiết vườn (Field Details) ---
+    st.subheader("📋 Field Details")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.write(f"**Crop:** {field.get('crop', 'N/A')}")
+        st.write(f"**Stage:** {field.get('stage', 'N/A')}")
+    with col_b:
+        st.write(f"**Area:** {field.get('area', 0):.2f} ha")
+        st.write(f"**Days to Harvest:** {field.get('days_to_harvest', 'N/A')}")
+
+    st.divider()
+
+    # --- Biểu đồ tổng quan (Giữ nguyên) ---
+    st.subheader("📈 Tổng quan Nhu cầu tưới (Tất cả các vườn)")
     
-    if "weather_forecast" in st.session_state:
-        weather = st.session_state.weather_forecast
-        forecast = weather.get("forecast", {})
+    if all_fields:
+        water_data = []
+        for f in all_fields:
+            # Dùng dữ liệu tĩnh từ DB cho biểu đồ tổng quan
+            water_data.append({
+                "Vườn": f.get('name', 'N/A'),
+                "Lượng nước (m³)": f.get('today_water', 0),
+                "Thời gian (giờ)": f.get('time_needed', 0)
+            })
+        df_water = pd.DataFrame(water_data)
         
-        if "daily" in forecast:
-            daily_data = forecast["daily"]
-            
-            # Weather metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                today_temp = daily_data["temperature_2m_max"][0] if daily_data["temperature_2m_max"] else 0
-                st.metric("Today's Max Temp", f"{today_temp:.1f}°C")
-            
-            with col2:
-                today_precip = daily_data["precipitation_sum"][0] if daily_data["precipitation_sum"] else 0
-                st.metric("Today's Precipitation", f"{today_precip:.1f} mm")
-            
-            with col3:
-                today_wind = daily_data["wind_speed_10m_max"][0] if daily_data["wind_speed_10m_max"] else 0
-                st.metric("Today's Max Wind", f"{today_wind:.1f} m/s")
-            
-            with col4:
-                avg_temp = sum(daily_data["temperature_2m_max"]) / len(daily_data["temperature_2m_max"]) if daily_data["temperature_2m_max"] else 0
-                st.metric("7-Day Avg Temp", f"{avg_temp:.1f}°C")
-            
-            # Weather chart
-            import plotly.graph_objects as go
-            from plotly.subplots import make_subplots
-            
-            dates = daily_data["time"]
-            temps_max = daily_data["temperature_2m_max"]
-            temps_min = daily_data["temperature_2m_min"]
-            precip = daily_data["precipitation_sum"]
-            wind = daily_data["wind_speed_10m_max"]
-            
-            fig = make_subplots(
-                rows=3, cols=1,
-                subplot_titles=('Temperature (°C)', 'Precipitation (mm)', 'Wind Speed (m/s)'),
-                vertical_spacing=0.1
-            )
-            
-            # Temperature
-            fig.add_trace(
-                go.Scatter(x=dates, y=temps_max, name='Max Temp', line=dict(color='red')),
-                row=1, col=1
-            )
-            fig.add_trace(
-                go.Scatter(x=dates, y=temps_min, name='Min Temp', line=dict(color='blue')),
-                row=1, col=1
-            )
-            
-            # Precipitation
-            fig.add_trace(
-                go.Bar(x=dates, y=precip, name='Precipitation', marker_color='lightblue'),
-                row=2, col=1
-            )
-            
-            # Wind
-            fig.add_trace(
-                go.Scatter(x=dates, y=wind, name='Wind Speed', line=dict(color='green')),
-                row=3, col=1
-            )
-            
-            fig.update_layout(height=600, showlegend=True)
+        if df_water["Lượng nước (m³)"].sum() > 0:
+            fig = px.bar(df_water, 
+                         x='Vườn', 
+                         y='Lượng nước (m³)', 
+                         title='Lượng nước cần tưới hôm nay (m³)',
+                         hover_data=['Thời gian (giờ)'],
+                         color='Lượng nước (m³)',
+                         labels={'Vườn': 'Tên Vườn'})
             st.plotly_chart(fig, use_container_width=True)
-            
-            # Irrigation recommendations
-            st.subheader("💧 Irrigation Recommendations")
-            
-            total_precip = sum(precip)
-            avg_temp = sum(temps_max) / len(temps_max)
-            
-            if total_precip > 20:
-                st.info("🌧️ High precipitation expected. Consider reducing irrigation by 30%.")
-            elif total_precip < 5 and avg_temp > 30:
-                st.warning("☀️ Hot and dry conditions. Consider increasing irrigation by 20%.")
-            else:
-                st.success("✅ Normal weather conditions. Continue regular irrigation schedule.")
-            
-            # Risk assessment
-            st.subheader("⚠️ Weather Risk Assessment")
-            
-            risks = []
-            if max(wind) > 10:
-                risks.append("High wind speeds may affect irrigation efficiency")
-            if max(temps_max) > 35:
-                risks.append("High temperatures may increase water demand")
-            if total_precip > 30:
-                risks.append("Heavy rainfall may cause waterlogging")
-            
-            if risks:
-                for risk in risks:
-                    st.warning(f"⚠️ {risk}")
-            else:
-                st.success("✅ No significant weather risks detected")
+        else:
+            st.info("Tất cả các vườn đều đã được tưới hôm nay.")
 
+# ===================================================================
+# --- TAB 2: CÀI ĐẶT (Giữ nguyên) ---
+# ===================================================================
 def render_schedule_settings(field):
     """Schedule settings and optimization"""
     st.subheader("⚙️ Schedule Settings & Optimization")
@@ -271,7 +331,6 @@ def render_schedule_settings(field):
             max_duration = st.number_input("Max Irrigation Duration (hours)", 1, 12, 4)
         
         if st.form_submit_button("💾 Save Settings", type="primary"):
-            # Update field settings
             update_data = {
                 'irrigation_efficiency': target_efficiency,
                 'water_saving_mode': water_saving_mode,
@@ -281,53 +340,41 @@ def render_schedule_settings(field):
                 'max_duration': max_duration
             }
             
-            if db.update_user_field(field.get('id', ''), st.user.email, update_data):
-                st.success("✅ Settings saved successfully!")
-                st.rerun()
-            else:
-                st.error("❌ Failed to save settings")
+            try:
+                if db.update_user_field(field.get('id'), field.get('user_email'), update_data):
+                    st.success("✅ Settings saved successfully!")
+                    get_field_data.clear() 
+                    st.rerun()
+                else:
+                    st.error("Lỗi: Không thể lưu cài đặt.")
+            except Exception as e:
+                st.error(f"Lỗi khi lưu: {e}")
+
     
-    # Optimization recommendations
-    st.subheader("💡 Optimization Recommendations")
+    # Sensor Data History
+    st.subheader("📊 Sensor Data History (Chart)")
     
-    # Analyze current settings and provide recommendations
-    current_efficiency = field.get('irrigation_efficiency', 85)
+    # Dùng hàm cache cho biểu đồ
+    telemetry_df = get_field_telemetry_history(st.user.email, field.get('id', ''))
     
-    if current_efficiency < 80:
-        st.warning("⚠️ Low irrigation efficiency detected. Consider:")
-        st.write("- Check for leaks in irrigation system")
-        st.write("- Optimize irrigation timing")
-        st.write("- Use drip irrigation for better efficiency")
-    elif current_efficiency > 90:
-        st.success("✅ Excellent irrigation efficiency!")
+    if not telemetry_df.empty:
+        fig = px.line(
+            telemetry_df,
+            x='timestamp',
+            y='Value',
+            color='Metric',
+            title=f"Sensor History for {field.get('name')}",
+            labels={'timestamp': 'Date', 'Value': 'Sensor Value'}
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.write("**Recent Statistics:**")
+        col1, col2 = st.columns(2)
+        with col1:
+            soil_data = telemetry_df[telemetry_df['Metric'] == 'Soil Moisture (Avg)']['Value']
+            st.metric("Avg Soil Moisture", f"{soil_data.mean():.1f}%" if not soil_data.empty else "N/A")
+        with col2:
+            temp_data = telemetry_df[telemetry_df['Metric'] == 'Air Temperature']['Value']
+            st.metric("Avg Air Temp", f"{temp_data.mean():.1f}°C" if not temp_data.empty else "N/A")
     else:
-        st.info("ℹ️ Good irrigation efficiency. Consider:")
-        st.write("- Fine-tune irrigation timing")
-        st.write("- Monitor soil moisture levels")
-        st.write("- Adjust based on weather conditions")
-    
-    # Water usage analysis
-    st.subheader("📊 Water Usage Analysis")
-    
-    # Simulate water usage data
-    import numpy as np
-    
-    days = pd.date_range(start=datetime.now() - timedelta(days=30), end=datetime.now(), freq='D')
-    water_usage = np.random.normal(100, 20, len(days))
-    
-    fig = px.line(
-        x=days,
-        y=water_usage,
-        title='Water Usage Trend (Last 30 Days)',
-        labels={'x': 'Date', 'y': 'Water Usage (Liters)'}
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Usage statistics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Avg Daily Usage", f"{np.mean(water_usage):.1f} L")
-    with col2:
-        st.metric("Total Monthly", f"{np.sum(water_usage):.1f} L")
-    with col3:
-        st.metric("Efficiency Score", f"{current_efficiency}%")
+        st.info(f"No telemetry data found for this field. Ensure a Hub is assigned to field '{field.get('name')}' and is sending data.")

@@ -614,38 +614,280 @@ def render_add_field():
 # Crop DB helpers (from your original)
 # ------------------------
 CROP_DATABASE = {
-    "Rice": {
+    # --- Lúa & Ngũ cốc ---
+    "Lúa": {
         "growth_rate": 0.8,
         "water_requirement": 120,
         "sun_requirement": 8,
         "crop_coefficient": 1.1,
         "irrigation_efficiency": 80,
-        "planting_season": "Wet season",
+        "planting_season": "Mùa mưa",
         "harvest_days": 120,
-        "soil_type": "Clay loam",
+        "soil_type": "Đất thịt pha sét",
         "ph_range": "6.0-7.0"
     },
-    "Corn": {
+    "Ngô": {
         "growth_rate": 0.9,
         "water_requirement": 100,
         "sun_requirement": 10,
         "crop_coefficient": 1.0,
         "irrigation_efficiency": 85,
-        "planting_season": "Dry season",
+        "planting_season": "Mùa khô",
         "harvest_days": 90,
-        "soil_type": "Sandy loam",
+        "soil_type": "Đất cát pha",
         "ph_range": "6.0-7.5"
     },
-    "Cabbage": {
+    "Lúa mì": {
+        "growth_rate": 0.85,
+        "water_requirement": 90,
+        "sun_requirement": 8,
+        "crop_coefficient": 1.05,
+        "irrigation_efficiency": 85,
+        "planting_season": "Mùa lạnh",
+        "harvest_days": 110,
+        "soil_type": "Đất thịt nhẹ",
+        "ph_range": "6.0-7.5"
+    },
+    "Khoai lang": {
+        "growth_rate": 0.7,
+        "water_requirement": 75,
+        "sun_requirement": 8,
+        "crop_coefficient": 0.85,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa khô",
+        "harvest_days": 100,
+        "soil_type": "Đất cát pha",
+        "ph_range": "5.5-6.5"
+    },
+    "Khoai tây": {
+        "growth_rate": 0.8,
+        "water_requirement": 85,
+        "sun_requirement": 7,
+        "crop_coefficient": 0.9,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa lạnh",
+        "harvest_days": 90,
+        "soil_type": "Đất thịt nhẹ",
+        "ph_range": "5.5-6.5"
+    },
+
+    # --- Rau củ ---
+    "Cải bắp": {
         "growth_rate": 0.7,
         "water_requirement": 85,
         "sun_requirement": 6,
         "crop_coefficient": 0.9,
         "irrigation_efficiency": 85,
-        "planting_season": "Cool season",
+        "planting_season": "Mùa mát",
         "harvest_days": 70,
-        "soil_type": "Loam",
+        "soil_type": "Đất thịt pha",
         "ph_range": "6.0-7.0"
+    },
+    "Cà chua": {
+        "growth_rate": 0.9,
+        "water_requirement": 100,
+        "sun_requirement": 8,
+        "crop_coefficient": 1.05,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa khô",
+        "harvest_days": 90,
+        "soil_type": "Đất tơi xốp",
+        "ph_range": "6.0-6.8"
+    },
+    "Dưa leo": {
+        "growth_rate": 0.95,
+        "water_requirement": 95,
+        "sun_requirement": 9,
+        "crop_coefficient": 1.1,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa khô",
+        "harvest_days": 60,
+        "soil_type": "Đất phù sa",
+        "ph_range": "6.0-7.0"
+    },
+    "Cà rốt": {
+        "growth_rate": 0.8,
+        "water_requirement": 80,
+        "sun_requirement": 6,
+        "crop_coefficient": 0.9,
+        "irrigation_efficiency": 85,
+        "planting_season": "Mùa lạnh",
+        "harvest_days": 90,
+        "soil_type": "Đất cát pha",
+        "ph_range": "6.0-7.0"
+    },
+    "Rau muống": {
+        "growth_rate": 0.95,
+        "water_requirement": 120,
+        "sun_requirement": 8,
+        "crop_coefficient": 1.0,
+        "irrigation_efficiency": 80,
+        "planting_season": "Quanh năm",
+        "harvest_days": 30,
+        "soil_type": "Đất ẩm",
+        "ph_range": "6.5-7.5"
+    },
+
+    # --- Cây ăn quả ---
+    "Xoài": {
+        "growth_rate": 0.85,
+        "water_requirement": 100,
+        "sun_requirement": 9,
+        "crop_coefficient": 1.0,
+        "irrigation_efficiency": 85,
+        "planting_season": "Mùa khô",
+        "harvest_days": 180,
+        "soil_type": "Đất phù sa",
+        "ph_range": "5.5-7.5"
+    },
+    "Cam": {
+        "growth_rate": 0.9,
+        "water_requirement": 110,
+        "sun_requirement": 8,
+        "crop_coefficient": 1.05,
+        "irrigation_efficiency": 85,
+        "planting_season": "Mùa mưa",
+        "harvest_days": 240,
+        "soil_type": "Đất tơi xốp",
+        "ph_range": "5.5-6.5"
+    },
+    "Chuối": {
+        "growth_rate": 1.0,
+        "water_requirement": 140,
+        "sun_requirement": 10,
+        "crop_coefficient": 1.2,
+        "irrigation_efficiency": 80,
+        "planting_season": "Quanh năm",
+        "harvest_days": 300,
+        "soil_type": "Đất phù sa ẩm",
+        "ph_range": "6.0-7.5"
+    },
+    "Sầu riêng": {
+        "growth_rate": 0.9,
+        "water_requirement": 150,
+        "sun_requirement": 10,
+        "crop_coefficient": 1.2,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa khô",
+        "harvest_days": 365,
+        "soil_type": "Đất thịt pha cát",
+        "ph_range": "6.0-7.0"
+    },
+    "Thanh long": {
+        "growth_rate": 0.85,
+        "water_requirement": 90,
+        "sun_requirement": 10,
+        "crop_coefficient": 1.1,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa khô",
+        "harvest_days": 180,
+        "soil_type": "Đất cát pha",
+        "ph_range": "6.0-7.0"
+    },
+
+    # --- Cây công nghiệp ---
+    "Cà phê": {
+        "growth_rate": 0.8,
+        "water_requirement": 130,
+        "sun_requirement": 9,
+        "crop_coefficient": 1.1,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa mưa",
+        "harvest_days": 270,
+        "soil_type": "Đất đỏ bazan",
+        "ph_range": "5.5-6.5"
+    },
+    "Hồ tiêu": {
+        "growth_rate": 0.75,
+        "water_requirement": 120,
+        "sun_requirement": 8,
+        "crop_coefficient": 1.1,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa mưa",
+        "harvest_days": 365,
+        "soil_type": "Đất đỏ bazan",
+        "ph_range": "5.5-7.0"
+    },
+    "Chè": {
+        "growth_rate": 0.8,
+        "water_requirement": 100,
+        "sun_requirement": 7,
+        "crop_coefficient": 1.0,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa mưa",
+        "harvest_days": 210,
+        "soil_type": "Đất đồi ẩm",
+        "ph_range": "4.5-6.0"
+    },
+    "Mía": {
+        "growth_rate": 0.9,
+        "water_requirement": 140,
+        "sun_requirement": 10,
+        "crop_coefficient": 1.15,
+        "irrigation_efficiency": 75,
+        "planting_season": "Mùa khô",
+        "harvest_days": 300,
+        "soil_type": "Đất phù sa",
+        "ph_range": "6.0-7.5"
+    },
+
+    # --- Cây gia vị & dược liệu ---
+    "Gừng": {
+        "growth_rate": 0.8,
+        "water_requirement": 90,
+        "sun_requirement": 7,
+        "crop_coefficient": 0.9,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa mưa",
+        "harvest_days": 180,
+        "soil_type": "Đất tơi xốp",
+        "ph_range": "6.0-7.0"
+    },
+    "Nghệ": {
+        "growth_rate": 0.75,
+        "water_requirement": 85,
+        "sun_requirement": 7,
+        "crop_coefficient": 0.9,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa mưa",
+        "harvest_days": 200,
+        "soil_type": "Đất cát pha",
+        "ph_range": "6.0-7.0"
+    },
+    "Sả": {
+        "growth_rate": 0.8,
+        "water_requirement": 80,
+        "sun_requirement": 8,
+        "crop_coefficient": 0.9,
+        "irrigation_efficiency": 80,
+        "planting_season": "Quanh năm",
+        "harvest_days": 150,
+        "soil_type": "Đất cát pha",
+        "ph_range": "5.5-7.5"
+    },
+
+    # --- Cây cảnh & cỏ ---
+    "Hoa hồng": {
+        "growth_rate": 0.7,
+        "water_requirement": 70,
+        "sun_requirement": 6,
+        "crop_coefficient": 0.85,
+        "irrigation_efficiency": 80,
+        "planting_season": "Mùa mát",
+        "harvest_days": 100,
+        "soil_type": "Đất thịt nhẹ",
+        "ph_range": "6.0-7.0"
+    },
+    "Cỏ sân vườn": {
+        "growth_rate": 0.8,
+        "water_requirement": 90,
+        "sun_requirement": 7,
+        "crop_coefficient": 0.8,
+        "irrigation_efficiency": 85,
+        "planting_season": "Quanh năm",
+        "harvest_days": 45,
+        "soil_type": "Đất thoát nước tốt",
+        "ph_range": "6.0-7.5"
     }
 }
 

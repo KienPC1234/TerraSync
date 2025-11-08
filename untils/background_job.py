@@ -1,4 +1,3 @@
-
 import json
 import time
 import sys
@@ -8,11 +7,29 @@ from datetime import datetime, timezone
 # Add parent directory to path to import database and onesignal
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import db
-from untils.onesignal import send_push_notification
+# Đã sửa lỗi chính tả 'untils' -> 'utils'
+try:
+    from utils.onesignal import send_push_notification
+except ImportError:
+    print("Cảnh báo: Không thể import 'utils.onesignal'. Chức năng thông báo đẩy sẽ không hoạt động.")
+    # Tạo hàm giả để code không bị lỗi
+    def send_push_notification(*args, **kwargs):
+        print("Lỗi: send_push_notification chưa được cấu hình.")
+        return None
 
 # Constants
 CHECK_INTERVAL_SECONDS = 300  # 5 minutes
 DB_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'terrasync_db.json')
+
+# --- Các hằng số cho logic tưới tiêu ---
+# (Bạn có thể điều chỉnh các ngưỡng này)
+LOW_MOISTURE_THRESHOLD = 30.0    # Ngưỡng độ ẩm thấp (cần tưới)
+HIGH_MOISTURE_THRESHOLD = 80.0   # Ngưỡng độ ẩm cao (ngừng tưới)
+RAIN_INTENSITY_THRESHOLD = 1.0   # Ngưỡng mưa (mm/h) để coi là "đang mưa"
+
+# =====================================================================
+# --- HÀM XỬ LÝ ALERTS (Giữ nguyên logic của bạn) ---
+# =====================================================================
 
 def get_user_by_email(email: str):
     """Fetches a user from the database by their email."""
@@ -43,11 +60,8 @@ def process_alerts():
             print("No alerts found.")
             return
 
-        updated_alerts = []
         notifications_sent = 0
-        
-        # We need to iterate over a copy, as we might modify it
-        all_alerts_copy = list(alerts)
+        all_alerts_copy = list(alerts) # Làm việc trên bản copy
 
         for i, alert in enumerate(all_alerts_copy):
             # Process only critical alerts that haven't been notified yet
@@ -64,54 +78,193 @@ def process_alerts():
                     print(f"Warning: Could not find user with email {user_email}. Skipping alert.")
                     continue
                 
-                player_id = user.get('one_signal_player_id')
+                # player_id = user.get('one_signal_player_id') 
+                # Sử dụng external_id (email) ổn định hơn
                 
-                if player_id:
-                    title = "🚨 Critical Farm Alert!"
-                    message = alert.get('message', "A critical event has occurred on your farm.")
-                    
-                    print(f"Sending notification to {user_email} for hub {hub_id}...")
-                    
-                    # Send notification
-                    result = send_push_notification(
-                        title=title,
-                        message=message,
-                        external_ids=[user_email] # Using external_id is more robust
-                    )
+                title = "🚨 Critical Farm Alert!"
+                message = alert.get('message', "A critical event has occurred on your farm.")
+                
+                print(f"Sending notification to {user_email} for hub {hub_id}...")
+                
+                # Send notification
+                result = send_push_notification(
+                    title=title,
+                    message=message,
+                    external_ids=[user_email] # Gửi bằng external_id (email)
+                )
 
-                    if result and result.get('id'):
-                        print(f"Successfully sent notification {result.get('id')}")
-                        # Mark as sent
-                        alert['notification_sent'] = True
-                        alert['notification_sent_at'] = datetime.now(timezone.utc).isoformat()
-                        notifications_sent += 1
-                    else:
-                        print(f"Error sending notification: {result.get('errors')}")
+                if result and result.get('id'):
+                    print(f"Successfully sent notification {result.get('id')}")
+                    # Mark as sent
+                    alert['notification_sent'] = True
+                    alert['notification_sent_at'] = datetime.now(timezone.utc).isoformat()
+                    notifications_sent += 1
+                    
+                    # Cập nhật lại vào DB (dùng index)
+                    db.update('alerts', i, alert)
                 else:
-                    print(f"User {user_email} has not configured their OneSignal Player ID. Skipping notification.")
-                
-                # Update the original list
-                db.update('alerts', i, alert)
-
+                    print(f"Error sending notification: {result.get('errors') if result else 'Unknown error'}")
 
         if notifications_sent > 0:
             print(f"Finished processing. Sent {notifications_sent} new critical notifications.")
         else:
             print("No new critical alerts to notify.")
 
-    except FileNotFoundError:
-        print(f"Error: Database file not found at {DB_FILE_PATH}")
-    except json.JSONDecodeError:
-        print(f"Error: Could not decode JSON from {DB_FILE_PATH}")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"An unexpected error occurred during process_alerts: {e}")
 
+
+# =====================================================================
+# --- HÀM TÍNH TOÁN TƯỚI TIÊU TỰ ĐỘNG (MỚI) ---
+# =====================================================================
+
+def get_field_by_id(fields_list, field_id):
+    """Helper: Tìm field và index của nó trong danh sách."""
+    for i, field in enumerate(fields_list):
+        if field.get('id') == field_id:
+            return field, i
+    return None, -1
+
+def get_latest_telemetry_for_hub(telemetry_list, hub_id):
+    """Helper: Lấy bản tin telemetry mới nhất cho hub."""
+    hub_telemetry = [t for t in telemetry_list if t.get('hub_id') == hub_id]
+    if not hub_telemetry:
+        return None
+    # Sắp xếp theo timestamp, mới nhất lên đầu
+    hub_telemetry.sort(key=lambda x: x.get('timestamp', '1970-01-01T00:00:00+00:00'), reverse=True)
+    return hub_telemetry[0]
+
+def average_soil_moisture(telemetry_data):
+    """Helper: Tính độ ẩm đất trung bình từ gói telemetry."""
+    if not telemetry_data or 'data' not in telemetry_data:
+        return None
+    nodes = telemetry_data['data'].get('soil_nodes', [])
+    if not nodes:
+        return None
+    values = [n['sensors']['soil_moisture'] for n in nodes if n.get('sensors') and 'soil_moisture' in n['sensors']]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+def calculate_auto_irrigation():
+    """
+    Tự động tính toán và cập nhật trạng thái tưới tiêu cho các vườn (fields)
+    dựa trên dữ liệu telemetry mới nhất.
+    """
+    print(f"[{datetime.now()}] Running automatic irrigation calculations...")
+    
+    try:
+        # 1. Tải tất cả các bảng cần thiết từ DB
+        all_hubs = db.get_all('iot_hubs')
+        all_fields = db.get_all('fields') # Dùng bảng 'fields' gốc
+        all_telemetry = db.get_all('telemetry')
+
+        if not all_hubs or not all_fields:
+            print("No hubs or fields found. Skipping irrigation logic.")
+            return
+
+        fields_updated = 0
+
+        # 2. Lặp qua từng Hub
+        for hub in all_hubs:
+            hub_id = hub.get('hub_id')
+            field_id = hub.get('field_id')
+            if not hub_id or not field_id:
+                continue
+
+            # 3. Tìm Field (vườn) tương ứng và index của nó
+            field, field_index = get_field_by_id(all_fields, field_id)
+            if not field:
+                print(f"Warning: Hub {hub_id} is linked to a non-existent field {field_id}.")
+                continue
+
+            # 4. Tìm Telemetry mới nhất cho Hub này
+            latest_telemetry = get_latest_telemetry_for_hub(all_telemetry, hub_id)
+            if not latest_telemetry:
+                print(f"No telemetry found for hub {hub_id}. Skipping field '{field.get('name')}'.")
+                continue
+
+            # 5. Lấy các chỉ số cảm biến
+            avg_moisture = average_soil_moisture(latest_telemetry)
+            rain_intensity = latest_telemetry.get('data', {}).get('atmospheric_node', {}).get('sensors', {}).get('rain_intensity', 0)
+
+            # 6. Áp dụng Logic Tưới tiêu
+            field_changed = False
+            new_status = field.get('status')
+            new_progress = field.get('progress')
+            new_time_needed = field.get('time_needed')
+
+            # Logic 1: Nếu trời đang mưa, đánh dấu là đã tưới
+            if rain_intensity > RAIN_INTENSITY_THRESHOLD:
+                if new_status != 'hydrated' or new_progress != 100:
+                    new_status = 'hydrated'
+                    new_progress = 100
+                    new_time_needed = 0
+                    field_changed = True
+                    print(f"Field '{field.get('name')}': Đang mưa. Dừng tưới.")
+            
+            # Logic 2: Nếu đất quá khô (và không mưa)
+            elif avg_moisture is not None and avg_moisture < LOW_MOISTURE_THRESHOLD:
+                if new_status != 'dehydrated':
+                    new_status = 'dehydrated'
+                    new_progress = 0
+                    new_time_needed = 2 # Ví dụ: cần 2 giờ tưới
+                    field_changed = True
+                    print(f"Field '{field.get('name')}': Đất khô ({avg_moisture}%). Cần tưới.")
+            
+            # Logic 3: Nếu đất quá ẩm (và không mưa)
+            elif avg_moisture is not None and avg_moisture > HIGH_MOISTURE_THRESHOLD:
+                 if new_status != 'hydrated' or new_progress != 100:
+                    new_status = 'hydrated'
+                    new_progress = 100
+                    new_time_needed = 0
+                    field_changed = True
+                    print(f"Field '{field.get('name')}': Đất ẩm ({avg_moisture}%). Ngừng tưới.")
+
+            # Logic 4: Nếu đất ở mức tốt (và không mưa)
+            elif avg_moisture is not None:
+                # Nếu trước đó đang 'cần tưới' (dehydrated)
+                if new_status == 'dehydrated':
+                    new_status = 'hydrated' # Chuyển sang 'hydrated'
+                    new_progress = 100     # Đánh dấu hoàn thành
+                    new_time_needed = 0
+                    field_changed = True
+                    print(f"Field '{field.get('name')}': Độ ẩm tốt ({avg_moisture}%).")
+
+            # 7. Cập nhật thay đổi vào DB (nếu có)
+            if field_changed:
+                field['status'] = new_status
+                field['progress'] = new_progress
+                field['time_needed'] = new_time_needed
+                
+                # Cập nhật bằng index, giống như cách process_alerts làm
+                db.update('fields', field_index, field)
+                fields_updated += 1
+        
+        if fields_updated > 0:
+            print(f"Finished irrigation calculations. Updated {fields_updated} fields.")
+        else:
+            print("Irrigation calculations complete. No fields required updates.")
+
+    except Exception as e:
+        print(f"An unexpected error occurred during calculate_auto_irrigation: {e}")
+
+
+# =====================================================================
+# --- HÀM CHÍNH (MAIN LOOP) ---
+# =====================================================================
 
 def main():
     """Main loop for the background job."""
     print("Starting TerraSync Background Job...")
     while True:
+        # 1. Xử lý alerts và gửi thông báo
         process_alerts()
+        
+        # 2. Chạy logic tưới tiêu tự động (MỚI)
+        calculate_auto_irrigation()
+        
+        print(f"--- Cycle complete. Sleeping for {CHECK_INTERVAL_SECONDS} seconds ---")
         time.sleep(CHECK_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
