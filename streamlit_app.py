@@ -18,15 +18,13 @@ from pages.ai_field_detection import render_ai_field_detection
 from pages.satellite_view import render_satellite_view
 from pages.add_field import render_add_field
 from utils import (
-    SAMPLE_ALERTS,
-    SAMPLE_HISTORY,
-    SAMPLE_TELEMETRY,
     fetch_alerts,
     fetch_history,
     fetch_latest_telemetry,
     generate_schedule,
     get_default_fields,
-    get_fields_from_db
+    get_fields_from_db,
+    predict_water_needs
 )
 from database import db
 
@@ -42,6 +40,46 @@ if not api_key:
     st.error("⚠️ Missing Gemini API key! Please set GEMINI_API_KEY or secrets.toml.")
 else:
     genai.configure(api_key=api_key)
+
+
+# -----------------------------
+# ✅ OneSignal Integration (Client-side JavaScript)
+# -----------------------------
+st.markdown("""
+<script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+<script>
+  window.OneSignal = window.OneSignal || [];
+  OneSignal.push(function() {
+    OneSignal.init({
+      appId: "d76f50fc-cd24-4426-9847-208fce2c52cc", // Replace with your OneSignal App ID
+      notifyButton: {
+        enable: true, // Show a subscribe button
+      },
+      allowLocalhostAsSecureOrigin: true, // Allow testing on localhost
+      path: '/' // Specify the path to the OneSignalSDKWorker.js file
+    });
+
+    // Listen for subscription changes
+    OneSignal.on('subscriptionChange', function (isSubscribed) {
+        if (isSubscribed) {
+            OneSignal.getUserId(function(userId) {
+                // Update URL query parameter with Player ID
+                const url = new URL(window.location.href);
+                url.searchParams.set('onesignal_player_id', userId);
+                window.history.replaceState({}, '', url.toString());
+            });
+        }
+    });
+
+    // Prompt for push notifications if not already subscribed
+    OneSignal.isPushNotificationsEnabled(function(isEnabled) {
+      if (!isEnabled) {
+        OneSignal.showNativePrompt();
+      }
+    });
+  });
+</script>
+""", unsafe_allow_html=True)
 
 
 # -----------------------------
@@ -86,13 +124,18 @@ def update_fields_from_telemetry():
             continue
         moisture = sensors.get("soil_moisture")
         temperature = sensors.get("soil_temperature")
+        
+        # Predict water needs using the new function
+        predicted_water = predict_water_needs(field, telemetry)
+        field["today_water"] = predicted_water
+        # Simple estimation for time needed based on predicted water
+        field["time_needed"] = round(predicted_water / 20, 1) if predicted_water > 0 else 0.0
+
         if moisture is not None:
             field["live_moisture"] = round(moisture, 1)
             status = classify_moisture(moisture)
             field["status"] = status
             field["status_label"] = status.replace("_", " ").title()
-            field["today_water"] = max(40, round(120 - moisture))
-            field["time_needed"] = max(1.0, round(6 - moisture / 20, 1))
             field["progress"] = max(0, min(100, round(moisture * 1.5)))
             bucket = {
                 "hydrated": "completed",
@@ -107,7 +150,7 @@ def update_fields_from_telemetry():
         if "area" in field:
             field["area_display"] = f"{field['area']:.2f} acres"
         if field.get("today_water"):
-            liters = int(field["today_water"] * 3.785)
+            liters = int(field["today_water"])
             field["water_usage"] = f"{liters} liters/day"
     if any(totals.values()):
         st.session_state.hydration_jobs = totals
@@ -146,16 +189,25 @@ if "user_saved" not in st.session_state:
         
         # Tạo hoặc cập nhật user
         existing_user = db.get_user_by_email(st.user.email)
+        
+        # Check for OneSignal Player ID in query parameters
+        query_params = st.query_params
+        onesignal_player_id = query_params.get("onesignal_player_id", [None])[0]
+
         if existing_user:
             # Cập nhật user hiện tại
-            db.update("users", {"email": st.user.email}, {
+            update_data = {
                 "last_login": datetime.now().isoformat(),
                 "name": st.user.name or existing_user.get('name', ''),
                 "picture": getattr(st.user, 'picture', '') or existing_user.get('picture', '')
-            })
+            }
+            if onesignal_player_id and existing_user.get("onesignal_player_id") != onesignal_player_id:
+                update_data["onesignal_player_id"] = onesignal_player_id
+            db.update("users", {"email": st.user.email}, update_data)
             st.session_state.user_saved = True
         else:
             # Tạo user mới
+            user_data["onesignal_player_id"] = onesignal_player_id
             db.add("users", user_data)
             st.session_state.user_saved = True
             st.session_state.new_user = True

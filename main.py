@@ -61,7 +61,6 @@ def print_banner():
 ▐  ╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝╚═╝      ╚═════╝ ╚═╝╚══════╝╚═════╝      ╚═╝  ▌
 ▐▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▌
 Credit: https://github.com/KienPC1234
-Repo: https://github.com/KienPC1234/Emotica-AI
 """
     lines = banner.splitlines()
     colors = [

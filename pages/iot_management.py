@@ -75,15 +75,14 @@ def render_hub_management():
                 
                 # Register with IoT API
                 client = get_iot_client()
-                # Assuming the client's register_hub returns a dict response from the API
-                response = client.register_hub(hub_data) 
+                # The client's register_hub returns a boolean (True for success, False for failure)
+                success = client.register_hub(hub_data) 
                 
-                if response and response.get("status") == "success":
-                    st.success(f"✅ {response.get('message', 'Hub registered successfully!')}")
+                if success:
+                    st.success(f"✅ Hub '{hub_id}' registered successfully!")
                     st.rerun()
                 else:
-                    error_msg = response.get('detail') if response else "Failed to register hub. The hub might be offline or the ID is incorrect."
-                    st.error(f"❌ {error_msg}")
+                    st.error(f"❌ Failed to register hub '{hub_id}'. It might already exist, or there was an API error.")
 
     
     # Danh sách hubs
@@ -165,10 +164,12 @@ def render_sensor_management():
     if selected_hub_id:
         # Lấy thông tin cảm biến từ API
         client = get_iot_client()
-        status_data = client.get_hub_status(selected_hub_id)
+        # get_hub_status returns a list of hub statuses
+        status_data_list = client.get_hub_status(selected_hub_id)
         
-        if status_data and status_data.get('hubs'):
-            hub_info = status_data['hubs'][0]
+        if status_data_list:
+            # Assuming we are interested in the first hub's status for the selected_hub_id
+            hub_info = status_data_list[0]
             sensors = hub_info.get('sensors', [])
             
             # Thống kê tổng quan

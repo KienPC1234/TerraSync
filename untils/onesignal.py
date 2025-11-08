@@ -1,8 +1,8 @@
 import requests
 
 # TODO: Replace with your OneSignal App ID and REST API Key
-ONESIGNAL_APP_ID = "YOUR_ONESIGNAL_APP_ID"
-ONESIGNAL_API_KEY = "YOUR_ONESIGNAL_REST_API_KEY"
+ONESIGNAL_APP_ID = "d76f50fc-cd24-4426-9847-208fce2c52cc"
+ONESIGNAL_API_KEY = "os_v2_app_25xvb7gnerccngchech44lcsztgaevudyifevfeyvbcjjyiqjwkjn34t66lt66qagyjoz4y5iggtb2h5gmquzplwgyjgme6psxhke4a"
 
 def send_push_notification(title, message, user_id=None, external_ids: list = None):
     """

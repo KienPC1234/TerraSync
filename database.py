@@ -177,7 +177,8 @@ class TerraSyncDB:
             update_payload = {
                 "name": user_data.get("name", user.get("name")),
                 "picture": user_data.get("picture", user.get("picture")),
-                "last_login": datetime.now().isoformat()
+                "last_login": datetime.now().isoformat(),
+                "onesignal_player_id": user_data.get("onesignal_player_id", user.get("onesignal_player_id"))
             }
             user.update(update_payload)
             self.update("users", {"email": email}, update_payload)
@@ -191,7 +192,8 @@ class TerraSyncDB:
                 "picture": user_data.get("picture", ""),
                 "first_login": datetime.now().isoformat(),
                 "last_login": datetime.now().isoformat(),
-                "is_active": True
+                "is_active": True,
+                "onesignal_player_id": user_data.get("onesignal_player_id", None)
             }
             self.add("users", new_user)
             # Lấy lại user mới nhất (đã có id)

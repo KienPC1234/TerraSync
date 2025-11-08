@@ -1,98 +1,13 @@
-# utils.py - Utilities Remain
 import math
 import os
 import random
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from uuid import uuid4
 
 import requests
+from iot_api_client import get_iot_client
 
-SAMPLE_TELEMETRY: Dict[str, Any] = {
-    "hub_id": "c72b56e1-1b9a-46a8-a7b8-0a6ef27b3b72",
-    "timestamp": "2025-10-22T13:42:00Z",
-    "location": {"lat": 20.4512, "lon": 106.3312},
-    "data": {
-        "soil_nodes": [
-            {
-                "node_id": "soil-01",
-                "sensors": {"soil_moisture": 31.4, "soil_temperature": 27.8},
-            },
-            {
-                "node_id": "soil-02",
-                "sensors": {"soil_moisture": 40.1, "soil_temperature": 26.2},
-            },
-            {
-                "node_id": "soil-03",
-                "sensors": {"soil_moisture": 22.7, "soil_temperature": 25.4},
-            },
-        ],
-        "atmospheric_node": {
-            "node_id": "atm-01",
-            "sensors": {
-                "air_temperature": 30.7,
-                "air_humidity": 70.2,
-                "rain_intensity": 0.0,
-                "wind_speed": 1.8,
-                "light_intensity": 950.0,
-                "barometric_pressure": 1007.6,
-            },
-        },
-    },
-}
-
-SAMPLE_HISTORY: List[Dict[str, Any]] = [
-    {
-        "hub_id": SAMPLE_TELEMETRY["hub_id"],
-        "timestamp": "2025-10-22T12:42:00Z",
-        "data": {
-            "soil_nodes": [
-                {
-                    "node_id": "soil-01",
-                    "sensors": {"soil_moisture": 34.5, "soil_temperature": 27.4},
-                },
-                {
-                    "node_id": "soil-02",
-                    "sensors": {"soil_moisture": 42.3, "soil_temperature": 26.0},
-                },
-                {
-                    "node_id": "soil-03",
-                    "sensors": {"soil_moisture": 24.0, "soil_temperature": 25.0},
-                },
-            ],
-            "atmospheric_node": SAMPLE_TELEMETRY["data"]["atmospheric_node"],
-        },
-    },
-    SAMPLE_TELEMETRY,
-]
-
-SAMPLE_ALERTS: List[Dict[str, Any]] = [
-    {
-        "hub_id": SAMPLE_TELEMETRY["hub_id"],
-        "node_id": "soil-01",
-        "message": "Soil moisture at soil-01 is critically low (24.5%)",
-        "level": "critical",
-        "created_at": "2025-10-22T13:30:00Z",
-    }
-]
-
-SAMPLE_FORECAST: List[Dict[str, Any]] = [
-    {
-        "time": "2025-10-22T14:00:00Z",
-        "temperature": 30.5,
-        "precipitation": 0.0,
-        "wind_speed": 2.2,
-        "weather_code": 2,
-    },
-    {
-        "time": "2025-10-22T17:00:00Z",
-        "temperature": 28.9,
-        "precipitation": 0.4,
-        "wind_speed": 3.1,
-        "weather_code": 80,
-    },
-]
 
 DEFAULT_FIELDS: List[Dict[str, Any]] = [
     {
@@ -215,39 +130,19 @@ def get_api_base() -> str:
     return base.rstrip("/")
 
 
-def _safe_get(url: str, params: Optional[Dict[str, Any]] = None, timeout: int = 5) -> Optional[Dict[str, Any]]:
-    try:
-        response = requests.get(url, params=params, timeout=timeout)
-        if response.status_code == 200:
-            return response.json()
-    except Exception:
-        return None
-    return None
+def fetch_latest_telemetry(hub_id: Optional[str] = None) -> Dict[str, Any]:
+    client = get_iot_client()
+    return client.get_latest_data(hub_id=hub_id) or {}
 
 
-def fetch_latest_telemetry(api_base: Optional[str] = None, hub_id: Optional[str] = None) -> Dict[str, Any]:
-    base = api_base or get_api_base()
-    params = {"hub_id": hub_id} if hub_id else None
-    payload = _safe_get(f"{base}/api/v1/data/latest", params=params)
-    return payload or deepcopy(SAMPLE_TELEMETRY)
+def fetch_history(hub_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    client = get_iot_client()
+    return client.get_data_history(hub_id=hub_id, limit=limit)
 
 
-def fetch_history(api_base: Optional[str] = None, hub_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
-    base = api_base or get_api_base()
-    params = {"hub_id": hub_id, "limit": limit} if hub_id else {"limit": limit}
-    payload = _safe_get(f"{base}/api/v1/data/history", params=params)
-    if payload and isinstance(payload, dict) and "items" in payload:
-        return payload.get("items", [])
-    return deepcopy(SAMPLE_HISTORY)
-
-
-def fetch_alerts(api_base: Optional[str] = None, hub_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
-    base = api_base or get_api_base()
-    params = {"hub_id": hub_id, "limit": limit} if hub_id else {"limit": limit}
-    payload = _safe_get(f"{base}/api/v1/alerts", params=params)
-    if payload and isinstance(payload, dict) and "items" in payload:
-        return payload.get("items", [])
-    return deepcopy(SAMPLE_ALERTS)
+def fetch_alerts(hub_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    client = get_iot_client()
+    return client.get_alerts(hub_id=hub_id, limit=limit)
 
 
 def _aggregate_soil_moisture(telemetry: Optional[Dict[str, Any]]) -> Optional[float]:
@@ -290,7 +185,7 @@ def generate_demo_payload(
     base_payload: Optional[Dict[str, Any]] = None,
     include_third_node: bool = True,
 ) -> Dict[str, Any]:
-    payload = deepcopy(base_payload or SAMPLE_TELEMETRY)
+    payload = deepcopy(base_payload or {})
     payload["hub_id"] = hub_id or os.getenv("DEMO_HUB_ID", "demo-hub-001")
     now = datetime.now(timezone.utc)
     payload["timestamp"] = now.isoformat().replace("+00:00", "Z")
@@ -391,5 +286,51 @@ def fetch_forecast(
             if forecast:
                 return forecast
     except Exception:
-        return deepcopy(SAMPLE_FORECAST)
-    return deepcopy(SAMPLE_FORECAST)
+        return [] # Return empty list instead of sample forecast
+    return [] # Return empty list instead of sample forecast
+
+def predict_water_needs(field: Dict[str, Any], telemetry: Optional[Dict[str, Any]]) -> float:
+    """
+    Dự đoán lượng nước cần thiết cho một ruộng dựa trên dữ liệu IoT.
+    """
+    water_needed = 0.0
+
+    # Lấy thông tin cây trồng
+    crop_type = field.get("crop")
+    crop_info = CROP_DB.get(crop_type, {})
+    base_water_requirement = crop_info.get("water_requirements", 100) # Mặc định 100mm
+
+    # Lấy dữ liệu độ ẩm đất từ telemetry
+    soil_moisture = None
+    if telemetry and "soil_nodes" in telemetry.get("data", {}):
+        for node in telemetry["data"]["soil_nodes"]:
+            if node.get("node_id") == field.get("node_id"):
+                soil_moisture = node.get("sensors", {}).get("soil_moisture")
+                break
+    
+    # Lấy dữ liệu lượng mưa từ telemetry
+    rain_intensity = 0.0
+    if telemetry and "atmospheric_node" in telemetry.get("data", {}):
+        rain_intensity = telemetry["data"]["atmospheric_node"].get("sensors", {}).get("rain_intensity", 0.0)
+
+    if soil_moisture is not None:
+        # Giả định độ ẩm lý tưởng là 60%
+        ideal_moisture = 60.0
+        moisture_deficit = max(0.0, ideal_moisture - soil_moisture)
+        
+        # Tính toán lượng nước cần dựa trên thiếu hụt độ ẩm và yêu cầu cơ bản của cây
+        # Hệ số điều chỉnh dựa trên diện tích (ví dụ: 1 acre = 4046.86 m^2)
+        area_sqm = field.get("area", 1.0) * 4046.86
+        # Chuyển đổi từ % độ ẩm sang mm nước (giả định 1% độ ẩm = X mm nước)
+        # Đây là một ước tính rất thô, cần mô hình phức tạp hơn cho thực tế
+        water_from_moisture = (moisture_deficit / 100.0) * base_water_requirement * (area_sqm / 1000.0) # Đơn vị lít
+        
+        water_needed = water_from_moisture
+
+    # Giảm lượng nước cần nếu có mưa
+    # Giả định 1mm mưa trên 1m^2 = 1 lít nước
+    water_from_rain = rain_intensity * field.get("area", 1.0) * 4046.86 / 1000.0 # Đơn vị lít
+    water_needed = max(0.0, water_needed - water_from_rain)
+
+    # Chuyển đổi sang lít/ngày (ước tính)
+    return round(water_needed, 2)

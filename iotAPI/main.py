@@ -229,18 +229,57 @@ def process_telemetry(payload: TelemetryPayload):
     """
     Hàm này được chạy trong background task.
     Nó thực hiện tất cả công việc "chậm"
+    VÀ GIỚI HẠN LỊCH SỬ TELEMETRY: Chỉ giữ lại 2 bản ghi mới nhất cho mỗi hub.
     """
     try:
-        # 1. Lưu trữ dữ liệu telemetry
-        record = serialize_payload(payload)
-        db.add("telemetry", record)
+        # 1. Chuẩn bị bản ghi mới
+        new_record = serialize_payload(payload)
+        current_hub_id = payload.hub_id
+
+        # 2. Lấy TOÀN BỘ telemetry hiện có
+        # CẢNH BÁO: Thao tác này rất tốn kém (non-scalable)
+        # Nó BẮT BUỘC phải có nếu dùng DB dạng file (giống MockDB)
+        try:
+            # Dùng db.get không query để lấy tất cả
+            all_telemetry = db.get("telemetry") 
+        except Exception:
+            all_telemetry = [] # Khởi tạo nếu bảng không tồn tại
+
+        # 3. Phân loại:
+        hub_records = []
+        other_hub_records = []
         
-        # 2. Phân tích và lưu trữ alerts
+        for item in all_telemetry:
+            # Kiểm tra an toàn phòng khi item không có 'hub_id'
+            if item and item.get("hub_id") == current_hub_id:
+                hub_records.append(item)
+            else:
+                other_hub_records.append(item)
+        
+        # 4. Sắp xếp các bản ghi CŨ của hub này (mới nhất -> cũ nhất)
+        hub_records.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+
+        # 5. Tạo danh sách bản ghi mới cho hub này (Tối đa 2)
+        new_records_for_this_hub = [new_record] # Thêm bản ghi MỚI NHẤT
+        
+        if hub_records: # Nếu có lịch sử
+            # Thêm bản ghi CŨ MỚI NHẤT (trước đó)
+            new_records_for_this_hub.append(hub_records[0]) 
+
+        # 6. Tạo danh sách telemetry cuối cùng
+        # Gồm: bản ghi của các hub khác + 2 bản ghi mới nhất của hub này
+        final_telemetry_list = other_hub_records + new_records_for_this_hub
+
+        # 7. Ghi đè toàn bộ bảng "telemetry"
+        # Đây là cách duy nhất để "xóa" bản ghi cũ
+        db.overwrite_table("telemetry", final_telemetry_list)
+
+        # 8. Phân tích và lưu trữ alerts (như cũ)
         alerts = evaluate_alerts(payload)
         for alert in alerts:
             store_alert(alert)
         
-        logger.info(f"Đã xử lý xong telemetry cho hub {payload.hub_id}. Tạo {len(alerts)} alerts.")
+        logger.info(f"Đã xử lý xong telemetry cho hub {payload.hub_id} (giữ 2). Tạo {len(alerts)} alerts.")
     except Exception as e:
         logger.error(f"Lỗi background task khi xử lý hub {payload.hub_id}: {e}")
 
