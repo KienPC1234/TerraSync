@@ -38,6 +38,7 @@ import numpy as np
 # Local imports (bạn đã có module này)
 from database import db
 from inference_sdk import InferenceHTTPClient  # nếu không có, stub hoặc xử lý ngoại lệ
+from untils.irrigation_logic import calculate_daily_water_needs
 
 # ------------------------
 # Config & constants
@@ -592,7 +593,24 @@ def render_add_field():
                     try:
                         ok = db.add_user_field(user_email, field_doc)
                         if ok:
-                            st.success("Thêm field thành công 🎉")
+                            st.success("Thêm field thành công 🎉. Đang tính toán nhu cầu tưới ban đầu...")
+                            
+                            # Tính toán và cập nhật nhu cầu tưới ban đầu
+                            try:
+                                water_needs = calculate_daily_water_needs(field_doc)
+                                # field_doc đã có 'id' được thêm bởi db.add()
+                                update_data = {
+                                    "base_today_water": water_needs["today_water"],
+                                    "base_time_needed": water_needs["time_needed"],
+                                    "today_water": water_needs["today_water"],
+                                    "time_needed": water_needs["time_needed"],
+                                    "progress": 0
+                                }
+                                db.update_user_field(field_doc['id'], user_email, update_data)
+                                st.info(f"Nhu cầu tưới ban đầu: {water_needs['today_water']} m³, Thời gian: {water_needs['time_needed']} giờ.")
+                            except Exception as calc_e:
+                                st.warning(f"Không thể tính toán nhu cầu tưới ban đầu: {calc_e}")
+
                             # reset states (only defaults)
                             for k, v in defaults.items():
                                 st.session_state[k] = v

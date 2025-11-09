@@ -338,9 +338,8 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
         # Generate AI response using chat history
         try:
             # Configure Gemini model
-            # SỬA LỖI: Dùng model 1.5-flash
             model = genai.GenerativeModel(
-                "gemini-1.5-flash",
+                "gemini-2.5-flash",
                 system_instruction=system_prompt, # Prompt hệ thống đã chứa ngữ cảnh tĩnh
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.7,
@@ -376,20 +375,23 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
                 current_img = Image.open(io.BytesIO(uploaded_file.getvalue()))
                 current_parts.append(current_img)
             
-            # Send the current user message
-            response = chat.send_message(current_parts)
-            ai_response = response.text
+            # Send the current user message with streaming
+            response_stream = chat.send_message(current_parts, stream=True)
             
-            # Add assistant message to history
-            st.session_state.messages.append({"role": "assistant", "content": ai_response, "images_b64": []})
+            # Use st.write_stream to display the response with an animation
+            with st.chat_message("assistant"):
+                # The st.write_stream function handles the iteration and display
+                full_response = st.write_stream(response_stream)
+            
+            # Add the complete assistant message to history after streaming is done
+            st.session_state.messages.append({"role": "assistant", "content": full_response, "images_b64": []})
             
         except Exception as e:
             ai_response = f"⚠️ Lỗi tạo phản hồi: {e}"
             st.session_state.messages.append({"role": "assistant", "content": ai_response, "images_b64": []})
-
-        # Display AI response
-        with st.chat_message("assistant"):
-            st.markdown(ai_response)
+            # Display error message
+            with st.chat_message("assistant"):
+                st.error(ai_response)
         
         # Xóa file upload sau khi xử lý
         if has_image:

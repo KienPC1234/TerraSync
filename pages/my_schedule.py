@@ -6,6 +6,9 @@ from database import db
 from datetime import datetime, timedelta
 import logging
 
+# Import logic từ module tập trung
+from untils.irrigation_logic import get_hub_id_for_field, get_latest_telemetry_stats, calculate_daily_water_needs
+
 # Giả định: import hàm get_field_data từ my_fields để xóa cache
 try:
     from .my_fields import get_field_data
@@ -28,17 +31,11 @@ RAIN_THRESHOLD_MMH = 1.0       # Mưa (mm/h) để coi là đang tưới
 # --- HÀM HELPER ĐỂ LẤY DỮ LIỆU ---
 # ===================================================================
 
-def get_hub_id_for_field(user_email: str, field_id: str) -> str | None:
-    """Helper: Lấy hub_id được gán cho field."""
-    hub = db.get("iot_hubs", {"field_id": field_id, "user_email": user_email})
-    if hub:
-        return hub[0].get('hub_id')
-    return None
-
 @st.cache_data(ttl=300) # Cache 5 phút cho biểu đồ
 def get_field_telemetry_history(user_email: str, field_id: str) -> pd.DataFrame:
     """
     Lấy LỊCH SỬ telemetry cho biểu đồ.
+    Hàm này vẫn ở đây vì nó dùng decorator của Streamlit.
     """
     hub_id = get_hub_id_for_field(user_email, field_id)
     if not hub_id:
@@ -81,51 +78,6 @@ def get_field_telemetry_history(user_email: str, field_id: str) -> pd.DataFrame:
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     return df.sort_values(by="timestamp")
 
-def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
-    """
-    Lấy GÓI TIN telemetry MỚI NHẤT (không cache) để tính toán.
-    """
-    hub_id = get_hub_id_for_field(user_email, field_id)
-    if not hub_id:
-        logger.warning(f"Không tìm thấy hub cho field {field_id}")
-        return None 
-
-    telemetry_data = db.get("telemetry", {"hub_id": hub_id})
-    if not telemetry_data:
-        logger.warning(f"Không tìm thấy telemetry cho hub {hub_id}")
-        return None
-    
-    # Sắp xếp để lấy gói tin mới nhất
-    try:
-        latest_entry = sorted(
-            telemetry_data, 
-            key=lambda x: x.get('timestamp', '1970-01-01T00:00:00+00:00'), 
-            reverse=True
-        )[0]
-    except IndexError:
-        return None
-        
-    data = latest_entry.get("data", {})
-    stats = {
-        "avg_moisture": None,
-        "rain_intensity": 0.0,
-        "timestamp": latest_entry.get('timestamp')
-    }
-
-    # Tính độ ẩm trung bình
-    nodes = data.get("soil_nodes", [])
-    if nodes:
-        values = [n['sensors']['soil_moisture'] for n in nodes if n.get('sensors') and 'soil_moisture' in n['sensors']]
-        if values:
-            stats["avg_moisture"] = sum(values) / len(values)
-
-    # Lấy lượng mưa
-    atm_node = data.get("atmospheric_node", {})
-    if atm_node.get('sensors') and 'rain_intensity' in atm_node['sensors']:
-        stats["rain_intensity"] = atm_node['sensors']['rain_intensity']
-        
-    return stats
-
 
 # ===================================================================
 # --- HÀM RENDER CHÍNH ---
@@ -144,10 +96,42 @@ def render_schedule():
     if not user_fields:
         st.warning("Không tìm thấy vườn. Vui lòng thêm vườn (field) trước.")
         return
+
+    # --- NÚT TÍNH TOÁN ---
+    st.subheader("🚀 Daily Irrigation Calculation")
+    st.markdown("Nhấn nút này vào đầu mỗi ngày để tính toán lượng nước tưới khuyến nghị cho tất cả các vườn dựa trên thông số cây trồng và diện tích.")
+    if st.button("Tính toán nhu cầu tưới hôm nay cho tất cả các vườn", type="primary"):
+        with st.spinner("Đang tính toán..."):
+            updated_count = 0
+            for field in user_fields:
+                try:
+                    # Gọi hàm tính toán cốt lõi
+                    water_needs = calculate_daily_water_needs(field)
+                    
+                    # Cập nhật DB với schema mới
+                    update_data = {
+                        "base_today_water": water_needs["today_water"],
+                        "base_time_needed": water_needs["time_needed"],
+                        "today_water": water_needs["today_water"], # Ban đầu, nước cần tưới = base
+                        "time_needed": water_needs["time_needed"], # Ban đầu, thời gian = base
+                        "progress": 0, # Reset lại tiến độ
+                        "status": "dehydrated" if water_needs["today_water"] > 0 else "hydrated"
+                    }
+                    if db.update_user_field(field.get('id'), st.user.email, update_data):
+                        updated_count += 1
+                except Exception as e:
+                    logger.error(f"Lỗi khi tính toán cho field {field.get('id')}: {e}")
+            
+            st.success(f"✅ Hoàn tất! Đã tính toán và cập nhật {updated_count}/{len(user_fields)} vườn.")
+            # Xóa cache để các trang khác load lại dữ liệu mới
+            get_field_data.clear()
+            st.rerun()
     
-    # Field selection
+    st.divider()
+
+    # --- Giao diện chọn Vườn và Tabs ---
     field_options = {f"{field.get('name', 'Unnamed')} ({field.get('crop', 'Unknown')})": field for field in user_fields}
-    selected_field_name = st.selectbox("Chọn Vườn", options=list(field_options.keys()))
+    selected_field_name = st.selectbox("Chọn Vườn để xem chi tiết", options=list(field_options.keys()))
     selected_field = field_options[selected_field_name]
     
     # Tabs
@@ -200,6 +184,10 @@ def render_current_status(field, all_fields):
         avg_moisture = live_stats["avg_moisture"]
         rain_intensity = live_stats["rain_intensity"]
         
+        # Lấy giá trị base để tính toán
+        base_water = field.get('base_today_water', db_today_water)
+        base_time = field.get('base_time_needed', db_time_needed)
+
         if rain_intensity > RAIN_THRESHOLD_MMH:
             display_status = "hydrated"
             display_progress = 100
@@ -209,10 +197,9 @@ def render_current_status(field, all_fields):
         
         elif avg_moisture < MOISTURE_MIN_THRESHOLD:
             display_status = "dehydrated"
-            # Tính toán % tiến độ (ví dụ: 0-25% là 0)
             display_progress = 0 
-            display_water = db_today_water # Lấy khuyến nghị từ DB
-            display_time = db_time_needed    # Lấy khuyến nghị từ DB
+            display_water = base_water # Cần tưới toàn bộ
+            display_time = base_time
             st.warning(f" Sensors detect low moisture: {avg_moisture:.1f}%.")
 
         elif avg_moisture > MOISTURE_MAX_THRESHOLD:
@@ -230,8 +217,8 @@ def render_current_status(field, all_fields):
             
             # Tính toán lượng nước/thời gian còn lại (tỷ lệ nghịch với tiến độ)
             remaining_factor = 1.0 - (display_progress / 100.0)
-            display_water = round(db_today_water * remaining_factor, 1)
-            display_time = round(db_time_needed * remaining_factor, 1)
+            display_water = round(base_water * remaining_factor, 1)
+            display_time = round(base_time * remaining_factor, 1)
 
         try:
             ts = datetime.fromisoformat(live_stats['timestamp']).strftime("%Y-%m-%d %H:%M:%S")

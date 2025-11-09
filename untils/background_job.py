@@ -7,28 +7,30 @@ from datetime import datetime, timezone
 # Add parent directory to path to import database and onesignal
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import db
-# Đã sửa lỗi chính tả 'untils' -> 'utils'
+
+# --- ĐÃ THAY ĐỔI: Import send_email thay vì send_push_notification ---
 try:
-    from utils.onesignal import send_push_notification
+    from utils.email_sender import send_email
 except ImportError:
-    print("Cảnh báo: Không thể import 'utils.onesignal'. Chức năng thông báo đẩy sẽ không hoạt động.")
+    print("Cảnh báo: Không thể import 'utils.email_sender'. Chức năng email sẽ không hoạt động.")
     # Tạo hàm giả để code không bị lỗi
-    def send_push_notification(*args, **kwargs):
-        print("Lỗi: send_push_notification chưa được cấu hình.")
+    def send_email(*args, **kwargs):
+        print("Lỗi: send_email chưa được cấu hình (không tìm thấy utils/email_sender.py).")
         return None
+# --- KẾT THÚC THAY ĐỔI ---
+
 
 # Constants
-CHECK_INTERVAL_SECONDS = 300  # 5 minutes
-DB_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'terrasync_db.json')
-
+CHECK_INTERVAL_SECONDS = 30  # 5 minutes
+DB_FILE_PATH = os.path.abspath('terrasync_db.json')
+print ("DB:",str(DB_FILE_PATH))
 # --- Các hằng số cho logic tưới tiêu ---
-# (Bạn có thể điều chỉnh các ngưỡng này)
 LOW_MOISTURE_THRESHOLD = 30.0    # Ngưỡng độ ẩm thấp (cần tưới)
 HIGH_MOISTURE_THRESHOLD = 80.0   # Ngưỡng độ ẩm cao (ngừng tưới)
 RAIN_INTENSITY_THRESHOLD = 1.0   # Ngưỡng mưa (mm/h) để coi là "đang mưa"
 
 # =====================================================================
-# --- HÀM XỬ LÝ ALERTS (Giữ nguyên logic của bạn) ---
+# --- HÀM XỬ LÝ ALERTS (ĐÃ SỬA) ---
 # =====================================================================
 
 def get_user_by_email(email: str):
@@ -49,8 +51,8 @@ def get_hub_owner_email(hub_id: str):
 
 def process_alerts():
     """
-    Processes critical alerts that have not been sent yet,
-    sends notifications, and marks them as sent.
+    Xử lý các cảnh báo khẩn cấp, gửi EMAIL,
+    và đánh dấu là đã gửi.
     """
     print(f"[{datetime.now()}] Checking for new critical alerts...")
     
@@ -64,7 +66,7 @@ def process_alerts():
         all_alerts_copy = list(alerts) # Làm việc trên bản copy
 
         for i, alert in enumerate(all_alerts_copy):
-            # Process only critical alerts that haven't been notified yet
+            # Chỉ xử lý cảnh báo 'critical' chưa được gửi
             if alert.get('level') == 'critical' and not alert.get('notification_sent'):
                 hub_id = alert.get('hub_id')
                 user_email = get_hub_owner_email(hub_id)
@@ -73,29 +75,31 @@ def process_alerts():
                     print(f"Warning: Could not find owner for hub_id {hub_id}. Skipping alert.")
                     continue
 
+                # Kiểm tra user tồn tại (vẫn hữu ích)
                 user = get_user_by_email(user_email)
                 if not user:
                     print(f"Warning: Could not find user with email {user_email}. Skipping alert.")
                     continue
                 
-                # player_id = user.get('one_signal_player_id') 
-                # Sử dụng external_id (email) ổn định hơn
+                # Không cần player_id nữa
                 
-                title = "🚨 Critical Farm Alert!"
-                message = alert.get('message', "A critical event has occurred on your farm.")
+                title = "🚨 Cảnh báo Nông trại Khẩn cấp!"
+                message = alert.get('message', "Một sự kiện khẩn cấp đã xảy ra tại vườn của bạn.")
                 
-                print(f"Sending notification to {user_email} for hub {hub_id}...")
+                print(f"Sending EMAIL to {user_email} for hub {hub_id}...")
                 
-                # Send notification
-                result = send_push_notification(
-                    title=title,
-                    message=message,
-                    external_ids=[user_email] # Gửi bằng external_id (email)
+                # --- ĐÃ THAY ĐỔI: Gọi send_email ---
+                result = send_email(
+                    subject=title,
+                    body=message,
+                    to_email=user_email 
                 )
+                # --- KẾT THÚC THAY ĐỔI ---
 
-                if result and result.get('id'):
-                    print(f"Successfully sent notification {result.get('id')}")
-                    # Mark as sent
+                # Logic kiểm tra kết quả (dựa trên 'status' thay vì 'id')
+                if result and result.get('status') == 'success':
+                    print(f"Successfully sent email notification (ID: {result.get('id', 'sent')})")
+                    # Đánh dấu là đã gửi
                     alert['notification_sent'] = True
                     alert['notification_sent_at'] = datetime.now(timezone.utc).isoformat()
                     notifications_sent += 1
@@ -103,10 +107,10 @@ def process_alerts():
                     # Cập nhật lại vào DB (dùng index)
                     db.update('alerts', i, alert)
                 else:
-                    print(f"Error sending notification: {result.get('errors') if result else 'Unknown error'}")
+                    print(f"Error sending email: {result.get('message') if result else 'Unknown error'}")
 
         if notifications_sent > 0:
-            print(f"Finished processing. Sent {notifications_sent} new critical notifications.")
+            print(f"Finished processing. Sent {notifications_sent} new critical emails.")
         else:
             print("No new critical alerts to notify.")
 
@@ -115,7 +119,7 @@ def process_alerts():
 
 
 # =====================================================================
-# --- HÀM TÍNH TOÁN TƯỚI TIÊU TỰ ĐỘNG (MỚI) ---
+# --- HÀM TÍNH TOÁN TƯỚI TIÊU (Giữ nguyên) ---
 # =====================================================================
 
 def get_field_by_id(fields_list, field_id):
@@ -261,7 +265,7 @@ def main():
         # 1. Xử lý alerts và gửi thông báo
         process_alerts()
         
-        # 2. Chạy logic tưới tiêu tự động (MỚI)
+        # 2. Chạy logic tưới tiêu tự động
         calculate_auto_irrigation()
         
         print(f"--- Cycle complete. Sleeping for {CHECK_INTERVAL_SECONDS} seconds ---")

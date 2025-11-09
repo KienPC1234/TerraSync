@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 import logging
 # Import CROP_DATABASE từ add_field.py
 from .add_field import CROP_DATABASE 
+# Import logic từ module tập trung
+from untils.irrigation_logic import get_latest_telemetry_stats
 
 # Cấu hình logging
 logger = logging.getLogger("my_fields_app")
@@ -88,59 +90,6 @@ def get_available_crops(user_email: str) -> list[str]:
         return sorted(list(CROP_DATABASE.keys()))
 
 # ========================================
-# HELPERS: Lấy dữ liệu Telemetry (MỚI)
-# (Sao chép từ my_schedule.py để tránh lỗi circular import)
-# ========================================
-def get_hub_id_for_field(user_email: str, field_id: str) -> str | None:
-    """Helper: Lấy hub_id được gán cho field."""
-    hub = db.get("iot_hubs", {"field_id": field_id, "user_email": user_email})
-    if hub:
-        return hub[0].get('hub_id')
-    return None
-
-def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
-    """
-    Lấy GÓI TIN telemetry MỚI NHẤT (không cache) để tính toán.
-    """
-    hub_id = get_hub_id_for_field(user_email, field_id)
-    if not hub_id:
-        # logger.warning(f"Không tìm thấy hub cho field {field_id}")
-        return None 
-
-    telemetry_data = db.get("telemetry", {"hub_id": hub_id})
-    if not telemetry_data:
-        # logger.warning(f"Không tìm thấy telemetry cho hub {hub_id}")
-        return None
-    
-    try:
-        latest_entry = sorted(
-            telemetry_data, 
-            key=lambda x: x.get('timestamp', '1970-01-01T00:00:00+00:00'), 
-            reverse=True
-        )[0]
-    except IndexError:
-        return None
-        
-    data = latest_entry.get("data", {})
-    stats = {
-        "avg_moisture": None,
-        "rain_intensity": 0.0,
-        "timestamp": latest_entry.get('timestamp')
-    }
-
-    nodes = data.get("soil_nodes", [])
-    if nodes:
-        values = [n['sensors']['soil_moisture'] for n in nodes if n.get('sensors') and 'soil_moisture' in n['sensors']]
-        if values:
-            stats["avg_moisture"] = sum(values) / len(values)
-
-    atm_node = data.get("atmospheric_node", {})
-    if atm_node.get('sensors') and 'rain_intensity' in atm_node['sensors']:
-        stats["rain_intensity"] = atm_node['sensors']['rain_intensity']
-        
-    return stats
-
-# ========================================
 # HÀM MỚI: Cập nhật trạng thái
 # ========================================
 def run_field_update(user_email: str):
@@ -160,14 +109,14 @@ def run_field_update(user_email: str):
             avg_moisture = live_stats["avg_moisture"]
             rain_intensity = live_stats["rain_intensity"]
             
-            # Lấy mục tiêu từ DB
-            db_today_water = field.get('today_water', 0)
-            db_time_needed = field.get('time_needed', 0)
+            # Lấy mục tiêu BASE từ DB
+            base_water = field.get('base_today_water', field.get('today_water', 0))
+            base_time = field.get('base_time_needed', field.get('time_needed', 0))
             
             new_status = field.get('status')
             new_progress = field.get('progress')
-            new_water = db_today_water
-            new_time = db_time_needed
+            new_water = base_water
+            new_time = base_time
 
             if rain_intensity > RAIN_THRESHOLD_MMH:
                 new_status = "hydrated"
@@ -177,8 +126,8 @@ def run_field_update(user_email: str):
             elif avg_moisture < MOISTURE_MIN_THRESHOLD:
                 new_status = "dehydrated"
                 new_progress = 0
-                new_water = db_today_water # Cần tưới
-                new_time = db_time_needed
+                new_water = base_water # Cần tưới toàn bộ
+                new_time = base_time
             elif avg_moisture > MOISTURE_MAX_THRESHOLD:
                 new_status = "hydrated"
                 new_progress = 100
@@ -191,8 +140,8 @@ def run_field_update(user_email: str):
                 new_progress = int((current_progress / progress_range) * 100)
                 
                 remaining_factor = 1.0 - (new_progress / 100.0)
-                new_water = round(db_today_water * remaining_factor, 1)
-                new_time = round(db_time_needed * remaining_factor, 1)
+                new_water = round(base_water * remaining_factor, 1)
+                new_time = round(base_time * remaining_factor, 1)
 
             # Cập nhật nếu có thay đổi
             update_data = {
@@ -222,47 +171,69 @@ def render_edit_modal(field, all_crops):
     with st.form("edit_field_form"):
         st.info(f"Bạn đang chỉnh sửa: **{field.get('name')}**")
         
+        # Lấy giá trị hiện tại
         current_name = field.get('name', '')
         current_crop = field.get('crop', 'Rice')
         current_stage = field.get('stage', 'Seedling')
         current_status = field.get('status', 'hydrated')
+        current_progress = field.get('progress', 0)
 
-        CROP_OPTIONS = all_crops
-        STAGE_OPTIONS = ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
-        STATUS_OPTIONS = ['hydrated', 'dehydrated', 'severely_dehydrated']
-
-        try:
-            crop_index = CROP_OPTIONS.index(current_crop)
-        except ValueError:
-            CROP_OPTIONS.append(current_crop) 
-            crop_index = CROP_OPTIONS.index(current_crop)
-        
-        try:
-            stage_index = STAGE_OPTIONS.index(current_stage)
-        except ValueError:
-            stage_index = 0 
-
-        try:
-            status_index = STATUS_OPTIONS.index(current_status)
-        except ValueError:
-            status_index = 0
-
+        # --- Input fields ---
         new_name = st.text_input("Tên Vườn (Field Name)", value=current_name)
-        new_crop = st.selectbox("Loại Cây Trồng (Crop Type)", options=CROP_OPTIONS, index=crop_index)
-        new_stage = st.selectbox("Giai Đoạn (Growth Stage)", options=STAGE_OPTIONS, index=stage_index)
-        new_status = st.selectbox("Trạng thái tưới (Hydration Status)", options=STATUS_OPTIONS, index=status_index,
-                                    help="Ghi đè thủ công trạng thái tưới.")
-        
-        st.markdown("---")
         
         col1, col2 = st.columns(2)
         with col1:
+            # Crop selection
+            CROP_OPTIONS = all_crops
+            try:
+                crop_index = CROP_OPTIONS.index(current_crop)
+            except ValueError:
+                CROP_OPTIONS.append(current_crop) 
+                crop_index = CROP_OPTIONS.index(current_crop)
+            new_crop = st.selectbox("Loại Cây Trồng (Crop Type)", options=CROP_OPTIONS, index=crop_index)
+
+            # Status selection
+            STATUS_OPTIONS = ['hydrated', 'dehydrated', 'severely_dehydrated']
+            try:
+                status_index = STATUS_OPTIONS.index(current_status)
+            except ValueError:
+                status_index = 0
+            new_status = st.selectbox("Trạng thái tưới (Hydration Status)", options=STATUS_OPTIONS, index=status_index,
+                                        help="Ghi đè thủ công trạng thái tưới.")
+        with col2:
+            # Stage selection
+            STAGE_OPTIONS = ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
+            try:
+                stage_index = STAGE_OPTIONS.index(current_stage)
+            except ValueError:
+                stage_index = 0 
+            new_stage = st.selectbox("Giai Đoạn (Growth Stage)", options=STAGE_OPTIONS, index=stage_index)
+
+            # Progress override
+            new_progress = st.slider("Ghi đè Tiến độ tưới (%)", 0, 100, int(current_progress), help="Ghi đè thủ công tiến độ tưới của vườn.")
+
+        st.markdown("---")
+        
+        # --- Form submission ---
+        col_save, col_cancel = st.columns(2)
+        with col_save:
             if st.form_submit_button("💾 Lưu thay đổi", type="primary", use_container_width=True):
+                # Tính toán lại water/time dựa trên progress mới
+                base_water = field.get('base_today_water', field.get('today_water', 0))
+                base_time = field.get('base_time_needed', field.get('time_needed', 0))
+                
+                remaining_factor = 1.0 - (new_progress / 100.0)
+                recalculated_water = round(base_water * remaining_factor, 1)
+                recalculated_time = round(base_time * remaining_factor, 1)
+
                 update_data = {
                     "name": new_name,
                     "crop": new_crop,
                     "stage": new_stage,
-                    "status": new_status, # Lưu trạng thái do user chọn
+                    "status": new_status,
+                    "progress": new_progress,
+                    "today_water": recalculated_water,
+                    "time_needed": recalculated_time,
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
                 
@@ -274,12 +245,10 @@ def render_edit_modal(field, all_crops):
                         st.rerun()
                     else:
                         st.error("Lỗi: Không thể cập nhật vườn trong DB.")
-                except AttributeError:
-                    st.error("Lỗi Lập trình: Hàm 'db.update_user_field' không tồn tại.")
                 except Exception as e:
                     st.error(f"Lỗi khi lưu: {e}")
 
-        with col2:
+        with col_cancel:
             if st.form_submit_button("Hủy", use_container_width=True):
                 st.session_state.editing_field = None
                 st.rerun()
@@ -376,8 +345,10 @@ def render_fields():
         if live_stats and live_stats.get("avg_moisture") is not None:
             avg_moisture = live_stats["avg_moisture"]
             rain_intensity = live_stats["rain_intensity"]
-            db_today_water = field.get('today_water', 0)
-            db_time_needed = field.get('time_needed', 0)
+            
+            # Lấy giá trị base để tính toán
+            base_water = field.get('base_today_water', display_water)
+            base_time = field.get('base_time_needed', display_time)
             
             if rain_intensity > RAIN_THRESHOLD_MMH:
                 display_status = "hydrated"
@@ -387,8 +358,8 @@ def render_fields():
             elif avg_moisture < MOISTURE_MIN_THRESHOLD:
                 display_status = "dehydrated"
                 display_progress = 0
-                display_water = db_today_water
-                display_time = db_time_needed
+                display_water = base_water # Hiển thị nước cần tưới toàn bộ
+                display_time = base_time
             elif avg_moisture > MOISTURE_MAX_THRESHOLD:
                 display_status = "hydrated"
                 display_progress = 100
@@ -401,8 +372,8 @@ def render_fields():
                 display_progress = int((current_progress / progress_range) * 100)
                 
                 remaining_factor = 1.0 - (display_progress / 100.0)
-                display_water = round(db_today_water * remaining_factor, 1)
-                display_time = round(db_time_needed * remaining_factor, 1)
+                display_water = round(base_water * remaining_factor, 1)
+                display_time = round(base_time * remaining_factor, 1)
             
             try:
                 ts = datetime.fromisoformat(live_stats['timestamp']).strftime("%H:%M:%S")

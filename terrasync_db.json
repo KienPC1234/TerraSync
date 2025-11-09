@@ -5,11 +5,11 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-10-23T19:37:17.461442",
-      "last_login": "2025-11-08T09:47:07.893967",
+      "last_login": "2025-11-08T10:18:58.561700",
       "is_active": true,
       "id": "6de2c8a0-ec63-4358-8b59-02f269fa59c4",
       "created_at": "2025-10-23T19:37:17.461485",
-      "updated_at": "2025-11-08T09:47:07.893989",
+      "updated_at": "2025-11-08T10:18:58.561715",
       "phone": "",
       "organization": "kien",
       "role": "Farmer",
@@ -342,7 +342,7 @@
       "created_at": "2025-10-23T20:41:23.667771"
     },
     {
-      "name": "kien",
+      "name": "Vườn 1",
       "crop": "Rice",
       "area": 2.1485847829888596,
       "polygon": [
@@ -377,19 +377,21 @@
       "crop_coefficient": 1.0,
       "irrigation_efficiency": 85,
       "status": "hydrated",
-      "today_water": 51.2,
-      "time_needed": 1.0,
+      "today_water": 91.0,
+      "time_needed": 8.5,
       "progress": 20,
       "days_to_harvest": 60,
       "id": "400f7674-1f66-478d-8031-845208a8e166",
       "user_email": "kienpc872009@gmail.com",
       "created_at": "2025-10-23T20:56:55.702472",
-      "updated_at": "2025-11-08T09:41:30.012273",
+      "updated_at": "2025-11-08T10:22:18.176573",
       "water_saving_mode": false,
       "weather_adjustment": true,
       "irrigation_frequency": "Daily",
       "preferred_time": "Early Morning (6-8 AM)",
-      "max_duration": 4
+      "max_duration": 4,
+      "base_today_water": 113.75,
+      "base_time_needed": 10.59
     },
     {
       "name": "Vườn Ươm 2",
@@ -426,14 +428,17 @@
       "stage": "Seedling",
       "crop_coefficient": 1.0,
       "irrigation_efficiency": 85,
-      "status": "hydrated",
-      "today_water": 100,
-      "time_needed": 2,
-      "progress": 50,
+      "status": "dehydrated",
+      "today_water": 10.27,
+      "time_needed": 10.59,
+      "progress": 0,
       "days_to_harvest": 60,
       "id": "1ee2ef86-cfe6-4109-8739-a5b005873e0c",
       "user_email": "kienpc872009@gmail.com",
-      "created_at": "2025-10-25T09:20:34.634801"
+      "created_at": "2025-10-25T09:20:34.634801",
+      "updated_at": "2025-11-08T10:21:44.724975",
+      "base_today_water": 10.27,
+      "base_time_needed": 10.59
     }
   ],
   "crops": [

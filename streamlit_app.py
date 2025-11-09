@@ -43,47 +43,6 @@ else:
 
 
 # -----------------------------
-# ✅ OneSignal Integration (Client-side JavaScript)
-# -----------------------------
-st.markdown("""
-<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js"></script>
-<script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js"></script>
-<script>
-  window.OneSignal = window.OneSignal || [];
-  OneSignal.push(function() {
-    OneSignal.init({
-      appId: "d76f50fc-cd24-4426-9847-208fce2c52cc", // Replace with your OneSignal App ID
-      notifyButton: {
-        enable: true, // Show a subscribe button
-      },
-      allowLocalhostAsSecureOrigin: true, // Allow testing on localhost
-      path: '/' // Specify the path to the OneSignalSDKWorker.js file
-    });
-
-    // Listen for subscription changes
-    OneSignal.on('subscriptionChange', function (isSubscribed) {
-        if (isSubscribed) {
-            OneSignal.getUserId(function(userId) {
-                // Update URL query parameter with Player ID
-                const url = new URL(window.location.href);
-                url.searchParams.set('onesignal_player_id', userId);
-                window.history.replaceState({}, '', url.toString());
-            });
-        }
-    });
-
-    // Prompt for push notifications if not already subscribed
-    OneSignal.isPushNotificationsEnabled(function(isEnabled) {
-      if (!isEnabled) {
-        OneSignal.showNativePrompt();
-      }
-    });
-  });
-</script>
-""", unsafe_allow_html=True)
-
-
-# -----------------------------
 # ✅ Khởi tạo Session States
 # -----------------------------
 if "messages" not in st.session_state:
@@ -190,10 +149,6 @@ if "user_saved" not in st.session_state:
         
         # Tạo hoặc cập nhật user
         existing_user = db.get_user_by_email(st.user.email)
-        
-        # Check for OneSignal Player ID in query parameters
-        query_params = st.query_params
-        onesignal_player_id = query_params.get("onesignal_player_id", [None])[0]
 
         if existing_user:
             # Cập nhật user hiện tại
@@ -202,13 +157,9 @@ if "user_saved" not in st.session_state:
                 "name": st.user.name or existing_user.get('name', ''),
                 "picture": getattr(st.user, 'picture', '') or existing_user.get('picture', '')
             }
-            if onesignal_player_id and existing_user.get("onesignal_player_id") != onesignal_player_id:
-                update_data["onesignal_player_id"] = onesignal_player_id
             db.update("users", {"email": st.user.email}, update_data)
             st.session_state.user_saved = True
         else:
-            # Tạo user mới
-            user_data["onesignal_player_id"] = onesignal_player_id
             db.add("users", user_data)
             st.session_state.user_saved = True
             st.session_state.new_user = True
