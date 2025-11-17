@@ -101,7 +101,7 @@ def render_dashboard():
     if len(history) > 1 and history[-2].get("data"):
         prev_atm = history[-2]["data"].get("atmospheric_node", {}).get("sensors", {})
 
-    cols = st.columns(4)
+    cols = st.columns(4,border=True)
     with cols[0]:
         temp = atm.get("air_temperature")
         prev_temp = prev_atm.get("air_temperature")
@@ -124,11 +124,10 @@ def render_dashboard():
         delta_value = delta(wind, prev_wind)
         st.metric("🌬 Wind Speed", label, f"{delta_value:+.1f}" if delta_value is not None else None)
 
-    st.divider()
 
     # === 3. FARM SUMMARY ===
     st.subheader("Farm Overview")
-    col1, col2 = st.columns([1.2, 1])
+    col1, col2 = st.columns([1.2, 1],border=True)
 
     if fields:
         field_df = pd.DataFrame(fields)
@@ -177,8 +176,6 @@ def render_dashboard():
             )
         else:
             st.caption("Không có dữ liệu vườn.")
-
-    st.divider()
     
     # === 4. FARM MAP & DETAILS ===
     st.subheader("🌾 Farm Map")
@@ -216,11 +213,9 @@ def render_dashboard():
                         st.metric("💧 Daily Water", f"{farm_data.get('today_water', 'N/A')} m³")
                         st.metric("🌿 Crop Type", farm_data.get("crop", "N/A"))
 
-                    # Progress bar
-                    days_total = 90 # Giả định
-                    days_left = farm_data.get('days_to_harvest', days_total)
-                    progress_value = max(0, min(1, (days_total - days_left) / days_total))
-                    st.progress(progress_value, text=f"Harvest Progress: {int(100 * progress_value)}%")
+                    # Progress bar for Watering
+                    watering_progress = farm_data.get('progress', 0)
+                    st.progress(watering_progress / 100, text=f"Watering Progress: {watering_progress}%")
                     
                     with st.expander("💡 Quick Tips", expanded=False):
                         st.info("AI treatment suggestions coming soon. Monitor telemetry for actionable insights today.")
@@ -287,93 +282,73 @@ def render_dashboard():
             
             folium_static(m, width="100%", height=630) # Giảm height 1 chút
 
-    st.divider()
 
     # === 5. Environmental Trends ===
-    st.subheader("📈 Environmental Trends")
-    history_records = []
-    
-    # Lấy dữ liệu từ 'history' đã được lọc
-    for entry in history:
-        timestamp = entry.get("timestamp")
-        # Lấy atm data
-        if entry.get("data", {}).get("atmospheric_node", {}).get("sensors", {}):
-            atm_sensors = entry["data"]["atmospheric_node"]["sensors"]
-            history_records.append({
-                "timestamp": timestamp,
-                "Sensor": "Air Temperature",
-                "Value": atm_sensors.get("air_temperature"),
-            })
-            history_records.append({
-                "timestamp": timestamp,
-                "Sensor": "Air Humidity",
-                "Value": atm_sensors.get("air_humidity"),
-            })
-        
-        # Lấy soil data (tính trung bình)
-        avg_moisture = average_soil(entry)
-        if avg_moisture is not None:
-             history_records.append({
-                "timestamp": timestamp,
-                "Sensor": "Soil Moisture (Avg)",
-                "Value": avg_moisture,
-            })
+    with st.container(border=True):
+        st.subheader("📈 Environmental Trends")
+        history_records = []
 
-    if history_records:
-        history_df = pd.DataFrame(history_records).dropna()
-        history_df["timestamp"] = pd.to_datetime(history_df["timestamp"])
-        
-        line_chart = (
-            alt.Chart(history_df)
-            .mark_line(point=True)
-            .encode(
-                x="timestamp:T",
-                y=alt.Y("Value:Q"),
-                color="Sensor:N",
-                tooltip=["timestamp:T", "Sensor:N", "Value:Q"],
+        # Lấy dữ liệu từ 'history' đã được lọc
+        for entry in history:
+            timestamp = entry.get("timestamp")
+            # Lấy atm data
+            if entry.get("data", {}).get("atmospheric_node", {}).get("sensors", {}):
+                atm_sensors = entry["data"]["atmospheric_node"]["sensors"]
+                history_records.append({
+                    "timestamp": timestamp,
+                    "Sensor": "Air Temperature",
+                    "Value": atm_sensors.get("air_temperature"),
+                })
+                history_records.append({
+                    "timestamp": timestamp,
+                    "Sensor": "Air Humidity",
+                    "Value": atm_sensors.get("air_humidity"),
+                })
+
+            # Lấy soil data (tính trung bình)
+            avg_moisture = average_soil(entry)
+            if avg_moisture is not None:
+                 history_records.append({
+                    "timestamp": timestamp,
+                    "Sensor": "Soil Moisture (Avg)",
+                    "Value": avg_moisture,
+                })
+
+        if history_records:
+            history_df = pd.DataFrame(history_records).dropna()
+            history_df["timestamp"] = pd.to_datetime(history_df["timestamp"])
+
+            line_chart = (
+                alt.Chart(history_df)
+                .mark_line(point=True)
+                .encode(
+                    x="timestamp:T",
+                    y=alt.Y("Value:Q"),
+                    color="Sensor:N",
+                    tooltip=["timestamp:T", "Sensor:N", "Value:Q"],
+                )
+                .properties(height=350)
+                .interactive() # Cho phép zoom/pan
             )
-            .properties(height=350)
-            .interactive() # Cho phép zoom/pan
-        )
-        st.altair_chart(line_chart, use_container_width=True)
-    else:
-        st.caption("Không có lịch sử telemetry để vẽ biểu đồ.")
-
-    st.divider()
+            st.altair_chart(line_chart, use_container_width=True)
+        else:
+            st.caption("Không có lịch sử telemetry để vẽ biểu đồ.")
 
     # === 6. Active Alerts ===
-    st.subheader("🚨 Active Alerts")
-    if alerts:
-        alerts_df = pd.DataFrame(alerts)
-        st.dataframe(
-            alerts_df.sort_values("created_at", ascending=False),
-            use_container_width=True,
-            column_config={
-                "created_at": st.column_config.DatetimeColumn("Time", format="YYYY-MM-DD HH:mm"),
-                "level": "Level",
-                "message": "Message",
-                "hub_id": "Hub",
-                "node_id": "Node",
-            }
-        )
-    else:
-        st.success("🎉 Không có cảnh báo nào. Hệ thống hoạt động bình thường!")
-
-# -------------------------------------------------------------------
-# Để chạy file này, bạn cần có file `database.py` 
-# và file app chính (ví dụ `app.py`) có thể gọi `render_dashboard()`
-#
-# Ví dụ file app.py:
-# import streamlit as st
-# from database import db # Phải import db
-# from dashboard_page import render_dashboard # Import hàm này
-#
-# # Giả lập login
-# class MockUser:
-#     email = "kienpc872009@gmail.com" # <-- Sửa email này để test
-#
-# st.user = MockUser()
-# st.user.is_logged_in = True
-#
-# render_dashboard()
-# -------------------------------------------------------------------
+    with st.container(border=True):
+        st.subheader("🚨 Active Alerts")
+        if alerts:
+            alerts_df = pd.DataFrame(alerts)
+            st.dataframe(
+                alerts_df.sort_values("created_at", ascending=False),
+                use_container_width=True,
+                column_config={
+                    "created_at": st.column_config.DatetimeColumn("Time", format="YYYY-MM-DD HH:mm"),
+                    "level": "Level",
+                    "message": "Message",
+                    "hub_id": "Hub",
+                    "node_id": "Node",
+                }
+            )
+        else:
+            st.success("🎉 Không có cảnh báo nào. Hệ thống hoạt động bình thường!")

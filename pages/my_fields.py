@@ -135,9 +135,9 @@ def run_field_update(user_email: str):
                 new_time = 0
             else: # Trong ngưỡng
                 new_status = "hydrated"
-                progress_range = MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD
-                current_progress = avg_moisture - MOISTURE_MIN_THRESHOLD
-                new_progress = int((current_progress / progress_range) * 100)
+                # Logic mới: Tiến độ dựa trên độ ẩm hiện tại so với ngưỡng tối đa
+                new_progress = int((avg_moisture / MOISTURE_MAX_THRESHOLD) * 100)
+                new_progress = max(0, min(100, new_progress)) # Đảm bảo trong khoảng 0-100
                 
                 remaining_factor = 1.0 - (new_progress / 100.0)
                 new_water = round(base_water * remaining_factor, 1)

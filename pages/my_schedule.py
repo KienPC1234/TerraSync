@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # --- Hằng số cho logic tưới tiêu (có thể chỉnh) ---
 MOISTURE_MIN_THRESHOLD = 25.0  # Dưới mức này là 'dehydrated'
-MOISTURE_MAX_THRESHOLD = 75.0  # Trên mức này là 'hydrated'
+MOISTURE_MAX_THRESHOLD = 55.0  # Trên mức này là 'hydrated'
 RAIN_THRESHOLD_MMH = 1.0       # Mưa (mm/h) để coi là đang tưới
 
 # ===================================================================
@@ -126,8 +126,6 @@ def render_schedule():
             # Xóa cache để các trang khác load lại dữ liệu mới
             get_field_data.clear()
             st.rerun()
-    
-    st.divider()
 
     # --- Giao diện chọn Vườn và Tabs ---
     field_options = {f"{field.get('name', 'Unnamed')} ({field.get('crop', 'Unknown')})": field for field in user_fields}
@@ -210,10 +208,9 @@ def render_current_status(field, all_fields):
             
         else: # Độ ẩm trong ngưỡng OK (ví dụ: 25% - 75%)
             display_status = "hydrated"
-            # Tính toán tiến độ dựa trên ngưỡng
-            progress_range = MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD
-            current_progress = avg_moisture - MOISTURE_MIN_THRESHOLD
-            display_progress = int((current_progress / progress_range) * 100)
+            # Logic mới: Tiến độ dựa trên độ ẩm hiện tại so với ngưỡng tối đa
+            display_progress = int((avg_moisture / MOISTURE_MAX_THRESHOLD) * 100)
+            display_progress = max(0, min(100, display_progress)) # Đảm bảo trong khoảng 0-100
             
             # Tính toán lượng nước/thời gian còn lại (tỷ lệ nghịch với tiến độ)
             remaining_factor = 1.0 - (display_progress / 100.0)

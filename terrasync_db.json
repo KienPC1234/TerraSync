@@ -5,11 +5,11 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-10-23T19:37:17.461442",
-      "last_login": "2025-11-08T10:18:58.561700",
+      "last_login": "2025-11-10T17:28:43.686246",
       "is_active": true,
       "id": "6de2c8a0-ec63-4358-8b59-02f269fa59c4",
       "created_at": "2025-10-23T19:37:17.461485",
-      "updated_at": "2025-11-08T10:18:58.561715",
+      "updated_at": "2025-11-10T17:28:43.686259",
       "phone": "",
       "organization": "kien",
       "role": "Farmer",
@@ -245,6 +245,17 @@
       "level": "info",
       "created_at": "2025-11-08T01:27:07.536758+00:00",
       "id": "cd1c8c0d-4cb2-4b97-b592-87b47634c39a"
+    },
+    {
+      "hub_id": "hub-01",
+      "node_id": "atm-01",
+      "message": "🚨 KHẨN CẤP: Nhiệt độ không khí CỰC CAO (50.0°C) - Nguy cơ sốc nhiệt!",
+      "level": "critical",
+      "created_at": "2025-11-10T04:14:45.458201+00:00",
+      "id": "f4739222-253e-4cdd-85d2-7a9d1024b680",
+      "notification_sent": true,
+      "notification_sent_at": "2025-11-10T04:31:33.571549+00:00",
+      "updated_at": "2025-11-10T11:31:33.571638"
     }
   ],
   "telemetry_history": [],
@@ -376,15 +387,15 @@
       "stage": "Seedling",
       "crop_coefficient": 1.0,
       "irrigation_efficiency": 85,
-      "status": "hydrated",
-      "today_water": 91.0,
-      "time_needed": 8.5,
-      "progress": 20,
+      "status": "dehydrated",
+      "today_water": 113.75,
+      "time_needed": 10.59,
+      "progress": 0,
       "days_to_harvest": 60,
       "id": "400f7674-1f66-478d-8031-845208a8e166",
       "user_email": "kienpc872009@gmail.com",
       "created_at": "2025-10-23T20:56:55.702472",
-      "updated_at": "2025-11-08T10:22:18.176573",
+      "updated_at": "2025-11-10T11:33:47.790543",
       "water_saving_mode": false,
       "weather_adjustment": true,
       "irrigation_frequency": "Daily",
@@ -436,7 +447,7 @@
       "id": "1ee2ef86-cfe6-4109-8739-a5b005873e0c",
       "user_email": "kienpc872009@gmail.com",
       "created_at": "2025-10-25T09:20:34.634801",
-      "updated_at": "2025-11-08T10:21:44.724975",
+      "updated_at": "2025-11-10T11:33:47.792286",
       "base_today_water": 10.27,
       "base_time_needed": 10.59
     }
@@ -549,20 +560,38 @@
       "id": "53dc2575-8c97-447d-8eda-c96d51539385"
     }
   ],
-  "chat_history": [],
+  "chat_history": [
+    {
+      "id": "c2a3d7c0-ed64-437d-8b63-905967aa28ad",
+      "user_email": "kienpc872009@gmail.com",
+      "timestamp": "2025-11-09T15:57:16.345399+00:00",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi!",
+          "images_b64": []
+        }
+      ],
+      "context": {
+        "selected_field": "Vườn 1"
+      },
+      "created_at": "2025-11-09T22:57:16.345421"
+    }
+  ],
   "iot_hubs": [
     {
+      "id": null,
       "hub_id": "hub-01",
       "user_email": "kienpc872009@gmail.com",
-      "location": null,
-      "description": null,
+      "name": "kien2",
+      "description": "",
       "field_id": "400f7674-1f66-478d-8031-845208a8e166",
-      "name": "hubv1",
+      "location": null,
       "status": "active",
-      "registered_at": "2025-11-07T07:49:05.635595+00:00",
+      "registered_at": null,
       "last_seen": null,
-      "id": "ffe335c0-2a90-425e-a5e5-1f5baafa090b",
-      "created_at": "2025-11-07T14:49:05.635631"
+      "created_at": null,
+      "updated_at": "2025-11-10T11:32:40.538815"
     }
   ],
   "telemetry": [
@@ -653,6 +682,52 @@
           }
         }
       }
+    },
+    {
+      "hub_id": "hub-01",
+      "timestamp": "2025-11-10T04:14:44.402000+00:00",
+      "location": {
+        "latitude": 20.4512,
+        "longitude": 106.3312
+      },
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil-01",
+            "sensors": {
+              "soil_moisture": 35.0,
+              "soil_temperature": 25.0
+            }
+          },
+          {
+            "node_id": "soil-02",
+            "sensors": {
+              "soil_moisture": 40.0,
+              "soil_temperature": 26.0
+            }
+          },
+          {
+            "node_id": "soil-03",
+            "sensors": {
+              "soil_moisture": 30.0,
+              "soil_temperature": 24.0
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm-01",
+          "sensors": {
+            "air_temperature": 50.0,
+            "air_humidity": 60.0,
+            "rain_intensity": 0.0,
+            "wind_speed": 5.0,
+            "light_intensity": 1000.0,
+            "barometric_pressure": 1012.0
+          }
+        }
+      },
+      "id": "370c1b57-4999-49f1-a2fe-39938d42dc25",
+      "created_at": "2025-11-10T11:14:45.457200"
     }
   ]
 }

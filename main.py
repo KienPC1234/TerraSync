@@ -113,31 +113,6 @@ def check_and_install_dependencies():
         sys.exit(1)
 
 
-def open_browser(delay_seconds: float = 5.0):
-    """Mở trình duyệt web đến URL của web server sau một khoảng trễ."""
-    try:
-        with open(PORTS_FILE, "r", encoding="utf-8") as f:
-            config = toml.load(f)
-        
-        port = config.get("webserver", {}).get("port", 8000)
-        host = config.get("webserver", {}).get("host", "127.0.0.1")
-        
-        # Chuyển 0.0.0.0 thành 127.0.0.1 để mở trình duyệt
-        if host == "0.0.0.0":
-            host = "127.0.0.1"
-            
-        url = f"http://{host}:{port}/chat"
-        print(f"Sẽ mở trình duyệt tại {url} sau {delay_seconds} giây...")
-        
-        # Sử dụng Timer để không block luồng chính
-        threading.Timer(delay_seconds, lambda: webbrowser.open_new_tab(url)).start()
-        
-    except FileNotFoundError:
-        print(f"Cảnh báo: Không tìm thấy file {PORTS_FILE}, không thể tự động mở trình duyệt.")
-    except Exception as e:
-        print(f"Lỗi khi mở trình duyệt: {e}")
-
-
 def download_file_with_curl(url: str, dest_path: Path):
     """Tải file bằng curl, hiển thị progress bar."""
     print(f"Đang tải xuống {dest_path.name}...")
@@ -346,7 +321,6 @@ class ProcessManager:
         print("Nhấn Ctrl+C để tắt ứng dụng một cách an toàn.")
         print("="*40 + "\n")
         
-        open_browser()
         
         # Bắt đầu vòng lặp giám sát
         self.monitor_and_restart()

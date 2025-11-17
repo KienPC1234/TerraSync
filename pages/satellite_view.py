@@ -1,39 +1,93 @@
 """
 TerraSync Satellite View Page
 Xem ruộng qua ảnh vệ tinh với AI upscaling
+(Đã cập nhật để tương thích với API v1.1.0)
 """
 
 import streamlit as st
 import folium
 from streamlit_folium import folium_static
 import requests
-import json
-import os
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
-from PIL import Image
+from PIL import Image, ImageDraw
 import io
 import base64
 from database import db
 import time
 
-API_URL = "http://172.24.193.209:9990"
+# --- THÊM CÁC IMPORT MỚI ĐỂ XỬ LÝ NDVI GEO-TIFF ---
+try:
+    import numpy as np
+    import rasterio
+    from rasterio.io import MemoryFile
+    from matplotlib import cm
+    from matplotlib.colors import Normalize
+except ImportError:
+    st.error("Lỗi: Không tìm thấy thư viện. Vui lòng chạy: pip install rasterio numpy matplotlib")
+    st.stop()
+# --- KẾT THÚC THÊM IMPORT ---
 
+
+API_URL = "http://172.24.193.209:9990" # Giữ nguyên API URL của bạn
+
+# --- HÀM HELPER MỚI: CHUYỂN ĐỔI NDVI TIFF SANG PNG ĐỂ HIỂN THỊ ---
+def convert_ndvi_to_png(geotiff_bytes: bytes) -> bytes:
+    """
+    Chuyển đổi file GeoTIFF NDVI (1 band, float) sang ảnh PNG (3 band, 8-bit)
+    sử dụng colormap 'RdYlGn' (Red-Yellow-Green).
+    """
+    try:
+        with MemoryFile(geotiff_bytes) as memfile:
+            with memfile.open() as dataset:
+                # Đọc band 1 (NDVI)
+                ndvi_data = dataset.read(1).astype(np.float32)
+                # Xử lý các giá trị no-data (nếu có)
+                ndvi_data[ndvi_data == dataset.nodata] = np.nan
+        
+        # Chuẩn hóa giá trị NDVI từ -1 (Đỏ) đến 1 (Xanh)
+        norm = Normalize(vmin=-1, vmax=1)
+        
+        # Áp dụng colormap 'RdYlGn'
+        colormap = cm.get_cmap('RdYlGn')
+        
+        # Áp dụng colormap (bỏ qua giá trị nan)
+        colored_data = colormap(norm(ndvi_data), bytes=True)
+        
+        # Tạo ảnh PIL từ mảng numpy (bỏ kênh Alpha)
+        img = Image.fromarray(colored_data[:, :, :3], 'RGB')
+        
+        # Xử lý vùng 'nan' (no-data) thành màu đen trong suốt (nếu cần)
+        # Ở đây ta để mặc định (thường là màu xám/trắng tùy colormap)
+        
+        # Lưu ảnh sang PNG
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+    
+    except Exception as e:
+        print(f"Lỗi chuyển đổi NDVI TIFF: {e}")
+        # Tạo ảnh báo lỗi
+        img = Image.new('RGB', (300, 200), color = 'white')
+        d = ImageDraw.Draw(img)
+        d.text((10,10), f"Lỗi xử lý NDVI TIFF:\n{e}", fill='red')
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+
+# --- ĐÃ SỬA: Cập nhật hàm gọi API ---
 def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]] = None) -> Dict[str, Any]:
     """
     Xử lý ảnh vệ tinh sử dụng API endpoint /process_satellite_image.
-    Tạo list coords từ polygon hoặc center point và gửi data trực tiếp.
-    Đảm bảo coords được gửi ở định dạng [[lon, lat], ...] với ít nhất 3 điểm cho polygon.
+    (Đã cập nhật để tương thích với API v1.1.0)
     """
-    coords = []  # List các điểm tọa độ [lon, lat]
+    coords = []
     
     if polygon is None or len(polygon) < 3:
-        # Fallback: Tạo bbox vuông nhỏ quanh center (4 điểm, không đóng)
         side = 0.001
         min_lat, max_lat = lat - side / 2, lat + side / 2
         min_lon, max_lon = lon - side / 2, lon + side / 2
-        
-        # 4 điểm theo thứ tự [lon, lat], không đóng (backend sẽ đóng)
         coords = [
             [min_lon, min_lat],
             [max_lon, min_lat],
@@ -41,48 +95,30 @@ def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]]
             [min_lon, max_lat]
         ]
     else:
-        # Sử dụng polygon [lat, lon] từ database, chuyển sang [lon, lat]
-        # Giả sử polygon không đóng, backend sẽ đóng nếu cần
-        coords = [[p[1], p[0]] for p in polygon]  # Chuyển [lat, lon] -> [lon, lat]
+        coords = [[p[1], p[0]] for p in polygon]
 
-    # Lấy ảnh mới nhất trong vòng 2 ngày để đảm bảo có dữ liệu
+    # --- SỬA PAYLOAD: Bỏ 'upscale' và 'collection' ---
     payload = {
         "coords": coords,
         "cloud": 50.0,
-        "days": 30,  # Lấy ảnh trong 2 ngày gần nhất
-        "upscale": 4,
-        "collection": "sentinel-2"
+        "days": 30, # Giữ nguyên 30 ngày (theo code cũ, không phải comment)
     }
     
     try:
         response = requests.post(
             f"{API_URL}/process_satellite_image",
             json=payload,
-            timeout=60000  # Tăng timeout nếu API xử lý lâu
+            timeout=60000 
         )
         
         if response.status_code == 200:
             api_result = response.json()
             
-            # Mock dữ liệu NDVI (vì API chỉ trả về ảnh)
-            predicted_class = "vegetation" 
-            if "vegetation" in predicted_class or "crop" in predicted_class:
-                ndvi = 0.6
-            elif "bare" in predicted_class or "soil" in predicted_class:
-                ndvi = 0.1
-            else:
-                ndvi = 0.3
+            # --- XÓA MOCK NDVI: API đã trả về dữ liệu thật ---
             
-            satellite_data = {
-                "ndvi_index": ndvi,
-                "evapotranspiration": 3.5 + (ndvi * 2),
-                "soil_moisture_index": 0.4 + (ndvi * 0.2),
-                "cloud_coverage": api_result.get("cloud_cover", 15.0)  # Lấy cloud_cover nếu API trả về
-            }
-            
+            # Trả về kết quả API đầy đủ
             return {
                 "status": "success",
-                "satellite_data": satellite_data,
                 "api_result": api_result
             }
         else:
@@ -92,6 +128,7 @@ def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]]
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# --- HÀM NÀY GIỮ NGUYÊN ---
 def get_weather_forecast(lat: float, lon: float, days: int = 7) -> Dict[str, Any]:
     """
     Mock weather forecast (có thể thay bằng API thực tế sau).
@@ -110,6 +147,7 @@ def get_weather_forecast(lat: float, lon: float, days: int = 7) -> Dict[str, Any
         }
     }
 
+# --- HÀM NÀY GIỮ NGUYÊN ---
 def render_satellite_view():
     """Trang xem ruộng qua vệ tinh"""
     st.title("🛰️ Satellite View & Remote Sensing")
@@ -127,6 +165,7 @@ def render_satellite_view():
     with tab3:
         render_weather_overlay()
 
+# --- ĐÃ SỬA: Cập nhật hàm render bản đồ ---
 def render_satellite_map():
     """Bản đồ vệ tinh tương tác"""
     st.subheader("🗺️ Interactive Satellite Map")
@@ -147,22 +186,18 @@ def render_satellite_map():
     center_lat = selected_field.get('center', [20.450123, 106.325678])[0]
     center_lon = selected_field.get('center', [20.450123, 106.325678])[1]
     
-    # Tạo bản đồ
+    # Tạo bản đồ (Giữ nguyên)
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=16,
         tiles=None
     )
-    
-    # Thêm các layer bản đồ
     folium.TileLayer(
         tiles='OpenStreetMap',
         name='Satellite',
         overlay=False,
         control=True
     ).add_to(m)
-    
-    # Vẽ polygon của field
     if 'polygon' in selected_field:
         polygon_coords = selected_field['polygon']
         folium.Polygon(
@@ -173,18 +208,14 @@ def render_satellite_map():
             fillColor='yellow',
             fillOpacity=0.3
         ).add_to(m)
-    
-    # Thêm marker trung tâm
     folium.Marker(
         [center_lat, center_lon],
         popup=f"Center of {selected_field.get('name', 'Field')}",
         icon=folium.Icon(color='red', icon='info-sign')
     ).add_to(m)
-    
-    # Hiển thị bản đồ
     folium_static(m, width=800, height=500)
     
-    # Thông tin field
+    # Thông tin field (Giữ nguyên)
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Field Area", f"{selected_field.get('area', 0):.2f} hectares")
@@ -200,7 +231,7 @@ def render_satellite_map():
     
     with col1:
         st.markdown("Nhận ảnh vệ tinh **mới nhất** từ **Sentinel-2** của Cơ quan Vũ trụ Châu Âu (ESA).")
-        if st.button("🛰️ Xem ruộng của bạn từ không gian!", type="primary", help="Lấy ảnh mới nhất trong vòng 2 ngày qua"):
+        if st.button("🛰️ Xem ruộng của bạn từ không gian!", type="primary", help="Lấy ảnh mới nhất trong vòng 30 ngày qua"):
             with st.spinner("🛰️ Đang kết nối với vệ tinh, tìm ảnh mới nhất và dùng AI xử lý... Quá trình này có thể mất vài phút."):
                 
                 result = process_satellite_imagery(center_lat, center_lon, selected_field.get('polygon'))
@@ -208,17 +239,21 @@ def render_satellite_map():
                 if result["status"] == "success":
                     st.session_state.satellite_result = result
                     st.success("✅ Đã tải và xử lý ảnh vệ tinh thành công!")
-                    
-                    # Hiển thị ảnh đã xử lý và kết quả AI
+
+                    # --- SỬA LỖI HIỂN THỊ ẢNH ---
                     api_res = result["api_result"]
-                    if "image_base64" in api_res:
-                        image_bytes = base64.b64decode(api_res["image_base64"])
+                    # 1. Đổi 'image_base64' -> 'upscaled_image_base64'
+                    if "upscaled_image_base64" in api_res:
+                        image_bytes = base64.b64decode(api_res["upscaled_image_base64"])
                         
-                        # Lấy ngày chụp (giả sử API trả về)
-                        acquisition_date = api_res.get("acquisition_date", (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'))
-                        caption = f"Ảnh vệ tinh Sentinel-2 (10m/pixel) được AI nâng cấp.\nDữ liệu được chụp ngày: {acquisition_date}"
-                        st.image(Image.open(io.BytesIO(image_bytes)), caption=caption, width='stretch')
-                    
+                        # 2. Lấy ngày chụp từ 'product_info' (nếu có)
+                        product_info = api_res.get("product_info", {})
+                        acquisition_date = product_info.get("acquisition_date", product_info.get("title", "Unknown Date"))
+
+                        caption = f"Ảnh vệ tinh Sentinel-2 (AI Upscaled).\nDữ liệu được chụp: {acquisition_date}"
+                        st.image(Image.open(io.BytesIO(image_bytes)), caption=caption, use_container_width=True)
+                    # --- KẾT THÚC SỬA LỖI ---
+                
                 else:
                     st.error(f"❌ Xử lý thất bại: {result.get('message', 'Lỗi không xác định')}")
     
@@ -232,109 +267,116 @@ def render_satellite_map():
         if st.button("📅 Get Historical Data"):
             st.info("Historical satellite data would be retrieved here")
 
+# --- ĐÃ SỬA: Viết lại hoàn toàn tab NDVI ---
+
 def render_ndvi_analysis():
-    """Phân tích NDVI"""
+    """Phân tích NDVI từ dữ liệu API mới + biểu đồ thống kê"""
     st.subheader("📊 NDVI (Normalized Difference Vegetation Index) Analysis")
     
     if "satellite_result" not in st.session_state:
-        st.info("Please process satellite imagery first in the Satellite Map tab.")
+        st.info("Vui lòng xử lý ảnh vệ tinh (process satellite imagery) ở tab 🗺️ Satellite Map trước.")
         return
     
     result = st.session_state.satellite_result
-    satellite_data = result.get("satellite_data", {})
     api_res = result.get("api_result", {})
-    
-    # Hiển thị lại ảnh nếu có
-    if "image_base64" in api_res:
-        image_bytes = base64.b64decode(api_res["image_base64"])
-        st.image(Image.open(io.BytesIO(image_bytes)), caption="AI Processed Satellite Image", use_column_width=True)
-    
-    # NDVI metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        ndvi = satellite_data.get("ndvi_index", 0)
-        st.metric("NDVI Index", f"{ndvi:.3f}")
-    
-    with col2:
-        et = satellite_data.get("evapotranspiration", 0)
-        st.metric("Evapotranspiration", f"{et:.1f} mm/day")
-    
-    with col3:
-        soil_moisture = satellite_data.get("soil_moisture_index", 0)
-        st.metric("Soil Moisture Index", f"{soil_moisture:.3f}")
-    
-    with col4:
-        cloud_coverage = satellite_data.get("cloud_coverage", 0)
-        st.metric("Cloud Coverage", f"{cloud_coverage:.1f}%")
-    
-    # NDVI interpretation
-    st.subheader("🌱 NDVI Interpretation")
-    
-    if ndvi < 0.1:
-        ndvi_status = "🔴 Bare Soil/Water"
-        ndvi_color = "red"
-    elif ndvi < 0.3:
-        ndvi_status = "🟡 Sparse Vegetation"
-        ndvi_color = "orange"
-    elif ndvi < 0.6:
-        ndvi_status = "🟢 Moderate Vegetation"
-        ndvi_color = "green"
-    else:
-        ndvi_status = "🌿 Dense Vegetation"
-        ndvi_color = "darkgreen"
-    
-    st.markdown(f"**Vegetation Status:** <span style='color:{ndvi_color}'>{ndvi_status}</span>", unsafe_allow_html=True)
-    
-    # NDVI chart
-    st.subheader("📈 NDVI Trends")
-    
-    # Generate sample NDVI data
-    import pandas as pd
-    import plotly.graph_objects as go
-    
-    dates = pd.date_range(start=datetime.now() - timedelta(days=30), end=datetime.now(), freq='D')
-    ndvi_values = [ndvi + (i * 0.001) + (0.05 * (i % 7 - 3)) for i in range(len(dates))]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=dates,
-        y=ndvi_values,
-        mode='lines+markers',
-        name='NDVI',
-        line=dict(color='green', width=2)
-    ))
-    
-    # Add threshold lines
-    fig.add_hline(y=0.3, line_dash="dash", line_color="orange", annotation_text="Sparse Vegetation")
-    fig.add_hline(y=0.6, line_dash="dash", line_color="green", annotation_text="Dense Vegetation")
-    
-    fig.update_layout(
-        title="NDVI Trends (Last 30 Days)",
-        xaxis_title="Date",
-        yaxis_title="NDVI Index",
-        height=400
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Recommendations based on NDVI
-    st.subheader("💡 Recommendations")
-    
-    if ndvi < 0.3:
-        st.warning("⚠️ Low vegetation density detected. Consider:")
-        st.write("- Check irrigation system")
-        st.write("- Apply fertilizer if needed")
-        st.write("- Monitor for pests or diseases")
-    elif ndvi > 0.7:
-        st.success("✅ Excellent vegetation health!")
-        st.write("- Continue current management practices")
-        st.write("- Monitor for overgrowth")
-    else:
-        st.info("ℹ️ Moderate vegetation health. Consider:")
-        st.write("- Regular monitoring")
-        st.write("- Optimize irrigation schedule")
 
+    # 1. Ảnh màu upscaled
+    st.subheader("🖼️ AI Upscaled True-Color Image")
+    if "upscaled_image_base64" in api_res:
+        image_bytes = base64.b64decode(api_res["upscaled_image_base64"])
+        st.image(Image.open(io.BytesIO(image_bytes)), caption="Ảnh màu AI Upscaled (để so sánh)", use_container_width=True)
+    else:
+        st.warning("Không tìm thấy ảnh màu upscaled.")
+
+    # 2. Ảnh NDVI và phân tích thống kê
+    st.subheader("🌱 NDVI (Vegetation Health) Image")
+    ndvi_stats = None
+
+    if "ndvi_geotiff_base64" in api_res:
+        with st.spinner("Đang phân tích ảnh NDVI GeoTIFF..."):
+            try:
+                tiff_bytes = base64.b64decode(api_res["ndvi_geotiff_base64"])
+
+                # Đọc NDVI từ GeoTIFF
+                with rasterio.MemoryFile(tiff_bytes) as memfile:
+                    with memfile.open() as dataset:
+                        ndvi_data = dataset.read(1).astype(float)
+                        ndvi_data = np.clip(ndvi_data, -1, 1)
+                        ndvi_masked = ndvi_data[~np.isnan(ndvi_data)]
+
+                # Chuyển NDVI sang ảnh PNG để hiển thị
+                from matplotlib import cm
+                colormap = cm.get_cmap('RdYlGn')
+                ndvi_normalized = (ndvi_data + 1) / 2  # scale -1..1 → 0..1
+                ndvi_rgb = (colormap(ndvi_normalized)[:, :, :3] * 255).astype(np.uint8)
+                ndvi_img = Image.fromarray(ndvi_rgb)
+
+                buf = io.BytesIO()
+                ndvi_img.save(buf, format="PNG")
+                st.image(buf.getvalue(), caption="Bản đồ NDVI (Đỏ = Đất trống/Nước, Xanh = Thực vật khỏe mạnh)", use_container_width=True)
+
+                # Legend
+                st.image("https://support.geoagro.com/wp-content/uploads/2021/04/en_NDVI-04.png",
+                         caption="Chú thích NDVI: -1 (Đỏ) đến +1 (Xanh lá)", width="stretch")
+
+                # Tính thống kê NDVI
+                ndvi_stats = {
+                    "mean": float(np.mean(ndvi_masked)),
+                    "min": float(np.min(ndvi_masked)),
+                    "max": float(np.max(ndvi_masked)),
+                    "healthy_ratio": float(np.sum(ndvi_masked > 0.5) / len(ndvi_masked) * 100),
+                    "moderate_ratio": float(np.sum((ndvi_masked > 0.2) & (ndvi_masked <= 0.5)) / len(ndvi_masked) * 100),
+                    "low_ratio": float(np.sum(ndvi_masked <= 0.2) / len(ndvi_masked) * 100),
+                }
+
+                st.success(f"✅ NDVI trung bình: {ndvi_stats['mean']:.3f} | "
+                           f"Thực vật khỏe mạnh: {ndvi_stats['healthy_ratio']:.1f}% | "
+                           f"Trung bình: {ndvi_stats['moderate_ratio']:.1f}% | "
+                           f"Yếu/kém: {ndvi_stats['low_ratio']:.1f}%")
+
+                # Biểu đồ Histogram
+                fig, ax = plt.subplots()
+                ax.hist(ndvi_masked, bins=30, color='green', alpha=0.7)
+                ax.set_title("Phân bố giá trị NDVI")
+                ax.set_xlabel("Giá trị NDVI (-1 đến +1)")
+                ax.set_ylabel("Số lượng pixel")
+                st.pyplot(fig)
+
+                # Biểu đồ Pie chart phần trăm sức khỏe
+                fig2, ax2 = plt.subplots()
+                labels = ['🌿 Khỏe mạnh (>0.5)', '🌾 Trung bình (0.2–0.5)', '🪵 Yếu/kém (≤0.2)']
+                sizes = [ndvi_stats["healthy_ratio"], ndvi_stats["moderate_ratio"], ndvi_stats["low_ratio"]]
+                ax2.pie(sizes, labels=labels, autopct='%1.1f%%', colors=['#00cc44', '#ccff66', '#ff6666'])
+                ax2.set_title("Tỷ lệ diện tích theo mức NDVI")
+                st.pyplot(fig2)
+
+            except Exception as e:
+                st.error(f"Không thể xử lý ảnh NDVI GeoTIFF: {e}")
+    else:
+        st.warning("Không tìm thấy dữ liệu NDVI GeoTIFF trong kết quả API.")
+
+    # 3. Thông tin ảnh vệ tinh
+    st.subheader("📊 Image Metrics")
+    col1, col2 = st.columns(2)
+    product_info = api_res.get("product_info", {})
+
+    with col1:
+        coords = api_res.get('top_left_lonlat', ['N/A', 'N/A'])
+        lat_str = f"{coords[1]:.5f}" if isinstance(coords[1], float) else "N/A"
+        lon_str = f"{coords[0]:.5f}" if isinstance(coords[0], float) else "N/A"
+        st.metric("Top-Left (Lon, Lat)", f"{lon_str}, {lat_str}")
+
+    with col2:
+        coords = api_res.get('bottom_right_lonlat', ['N/A', 'N/A'])
+        lat_str = f"{coords[1]:.5f}" if isinstance(coords[1], float) else "N/A"
+        lon_str = f"{coords[0]:.5f}" if isinstance(coords[0], float) else "N/A"
+        st.metric("Bottom-Right (Lon, Lat)", f"{lon_str}, {lat_str}")
+        
+    # 4. Xem thông tin sản phẩm
+    with st.expander("🔬 Xem thông tin sản phẩm (Product Info) từ API"):
+        st.json(product_info)
+
+# --- HÀM NÀY GIỮ NGUYÊN ---
 def render_weather_overlay():
     """Weather overlay trên bản đồ"""
     st.subheader("🌤️ Weather Overlay")
@@ -464,3 +506,33 @@ def render_weather_overlay():
                     st.warning(f"⚠️ {risk}")
             else:
                 st.success("✅ No significant weather risks detected")
+
+# --- Hàm main (để chạy file này độc lập nếu cần) ---
+# Thông thường, bạn sẽ import `render_satellite_view` vào trang chính.
+if __name__ == "__main__":
+    # Cấu hình giả lập (mock) user và db nếu chạy độc lập
+    if not hasattr(st, 'user'):
+        from collections import namedtuple
+        MockUser = namedtuple("MockUser", ["email", "is_logged_in"])
+        st.user = MockUser(email="test@example.com", is_logged_in=True)
+        
+        # Mock DB
+        class MockDB:
+            def get_user_fields(self, email):
+                return [
+                    {
+                        "name": "Thửa ruộng 1",
+                        "crop": "Lúa",
+                        "area": 1.5,
+                        "center": [20.450123, 106.325678],
+                        "polygon": [
+                            [20.449, 106.325],
+                            [20.451, 106.325],
+                            [20.451, 106.327],
+                            [20.449, 106.327]
+                        ]
+                    }
+                ]
+        db = MockDB()
+
+    render_satellite_view()

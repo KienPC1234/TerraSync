@@ -1,3 +1,4 @@
+# [Toàn bộ import của bạn ở trên...]
 import streamlit as st
 from streamlit_option_menu import option_menu
 import google.generativeai as genai
@@ -9,11 +10,13 @@ from PIL import Image
 import io
 import base64
 import logging
+# import time 
 
 logger = logging.getLogger(__name__)
 
 # ===================================================================
-# --- HÀM HELPER ĐỂ LẤY DỮ LIỆU CẢM BIẾN (LIVE) ---
+# --- CÁC HÀM HELPER CỦA BẠN (GIỮ NGUYÊN) ---
+# ... (Giữ nguyên các hàm get_hub_id_for_field, get_latest_telemetry_stats) ...
 # ===================================================================
 
 def get_hub_id_for_field(user_email: str, field_id: str) -> str | None:
@@ -56,7 +59,6 @@ def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
         "timestamp": latest_entry.get('timestamp')
     }
 
-    # Tính độ ẩm/nhiệt độ đất trung bình
     nodes = data.get("soil_nodes", [])
     if nodes:
         values_moist = [n['sensors']['soil_moisture'] for n in nodes if n.get('sensors') and 'soil_moisture' in n['sensors']]
@@ -66,7 +68,6 @@ def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
         if values_temp:
             stats["avg_soil_temp"] = sum(values_temp) / len(values_temp)
 
-    # Lấy thông số không khí
     atm_node = data.get("atmospheric_node", {})
     if atm_node.get('sensors'):
         stats["rain_intensity"] = atm_node['sensors'].get('rain_intensity', 0.0)
@@ -75,44 +76,21 @@ def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
         
     return stats
 
+
 # ===================================================================
 # --- HÀM RENDER CHAT (ĐÃ SỬA) ---
 # ===================================================================
 
 def render_chat():
-    # st.set_page_config(page_title="CropNet AI - Trợ lý Nông nghiệp", page_icon="💬", layout="wide")
-    
-    # Custom CSS for prettier UI
+    # CSS (Giữ nguyên)
     st.markdown("""
     <style>
-    .main .block-container {
-        padding-top: 2rem;
-    }
-    .stButton > button {
-        background-color: #4CAF50;
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 0.5rem 1rem;
-        font-weight: bold;
-    }
-    .stButton > button:hover {
-        background-color: #45a049;
-    }
-    .stFileUploader > div > div > div {
-        border: 2px dashed #4CAF50;
-        border-radius: 8px;
-    }
-    .stChatMessage {
-        border-radius: 12px;
-        padding: 1rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .stSelectbox > div > div > select {
-        border-radius: 8px;
-        border: 1px solid #4CAF50;
-    }
+    .main .block-container { padding-top: 2rem; }
+    .stButton > button { background-color: #4CAF50; color: white; border-radius: 8px; border: none; padding: 0.5rem 1rem; font-weight: bold; }
+    .stButton > button:hover { background-color: #45a049; }
+    .stFileUploader > div > div > div { border: 2px dashed #4CAF50; border-radius: 8px; }
+    .stChatMessage { border-radius: 12px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .stSelectbox > div > div > select { border-radius: 8px; border: 1px solid #4CAF50; }
     </style>
     """, unsafe_allow_html=True)
     
@@ -124,15 +102,13 @@ def render_chat():
         st.warning("⚠️ Vui lòng đăng nhập để sử dụng tính năng trò chuyện")
         return
 
-    # Sidebar for chat management
+    # Sidebar (Giữ nguyên)
     with st.sidebar:
         st.header("📱 Quản lý Trò chuyện")
         
         if st.button("📥 Lưu Cuộc trò chuyện Hiện tại"):
             if "messages" in st.session_state and st.session_state.messages:
                 context = {"selected_field": st.session_state.get("selected_field")}
-                
-                # Sửa lỗi: Dùng db.add để lưu chat
                 chat_doc = {
                     "id": str(uuid4()),
                     "user_email": st.user.email,
@@ -154,7 +130,6 @@ def render_chat():
             st.rerun()
 
         st.subheader("📚 Các Cuộc trò chuyện Đã lưu")
-        # Sửa lỗi: Lấy chat history từ bảng "chat_history"
         chat_histories = db.get("chat_history", {"user_email": st.user.email})
         
         if not chat_histories:
@@ -169,29 +144,26 @@ def render_chat():
                 if st.button("📋 Tải", key=f"load_{chat['id']}"):
                     st.session_state.messages = chat["messages"]
                     if "chat" in st.session_state:
-                        del st.session_state.chat  # Reset chat to rebuild with loaded history
+                        del st.session_state.chat 
                     st.rerun()
             with col3:
-                if chat["user_email"] == st.user.email:  # Only owner can delete
+                if chat["user_email"] == st.user.email: 
                     if st.button("🗑️", key=f"delete_{chat['id']}"):
-                        # Sửa lỗi: Dùng db.delete
                         if db.delete("chat_history", {"id": chat["id"]}):
                             st.success("✅ Đã xóa cuộc trò chuyện!")
                             st.rerun()
                         else:
                             st.error("Lỗi: Không thể xóa.")
-        
-        # (Tính năng chia sẻ giữ nguyên)
     
-    # Initialize session state for messages if not exists
+    # Initialize session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Lấy fields từ database (Sửa lỗi: dùng db.get)
+    # Lấy fields
     user_fields = db.get("fields", {"user_email": st.user.email}) if hasattr(st, 'user') and st.user.email else []
     fields = user_fields if user_fields else st.session_state.get('fields', [])
     
-    # Field selection dropdown
+    # Dropdown chọn Vườn
     col_field, col_info = st.columns([1, 3])
     with col_field:
         if fields:
@@ -201,8 +173,6 @@ def render_chat():
                 index=0,
                 help="Chọn một vườn để cung cấp ngữ cảnh cảm biến cho AI"
             )
-            
-            # Lấy dữ liệu tĩnh của vườn
             field_data = next((f for f in fields if f.get('name') == selected_field_name), None)
             st.session_state.selected_field = selected_field_name
         else:
@@ -210,11 +180,10 @@ def render_chat():
             field_data = None
             selected_field_name = None
     
-    # --- XÂY DỰNG NGỮ CẢNH ĐỘNG (ĐÃ SỬA) ---
+    # Xây dựng ngữ cảnh động
     context = ""
     live_stats = None
     if field_data:
-        # 1. Lấy dữ liệu tĩnh từ DB
         context = f"""
 --- Ngữ cảnh Vườn (Tĩnh) ---
 Tên vườn: {selected_field_name}
@@ -224,7 +193,6 @@ Diện tích: {field_data.get('area', 0):.2f} ha
 Trạng thái (đã lưu): {field_data.get('status', 'N/A')}
 Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
 """
-        # 2. Lấy dữ liệu động (LIVE) từ cảm biến
         live_stats = get_latest_telemetry_stats(st.user.email, field_data.get('id'))
         
         if live_stats:
@@ -243,12 +211,11 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
                 ts = datetime.fromisoformat(live_stats['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
                 live_context += f"Thời gian cảm biến: {ts}\n"
             except: pass
-            
             context += live_context
         else:
             context += "--- Ngữ cảnh Cảm biến (LIVE) ---\nKhông tìm thấy dữ liệu cảm biến (Hub/Sensor có thể đang offline).\n"
             
-    # Hiển thị thông tin (Info box)
+    # Hiển thị thông tin
     with col_info:
         if field_data:
             if live_stats and live_stats.get("avg_moisture") is not None:
@@ -256,16 +223,13 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
             else:
                 st.warning(f"🌱 {field_data.get('crop', 'N/A')} | ⚠️ Không có dữ liệu cảm biến live.")
 
-
-    # System prompt (ĐÃ CẬP NHẬT)
+    # System prompt (Giữ nguyên)
     system_prompt = f"""
     Bạn là CropNet AI, một trợ lý nông nghiệp chuyên gia (chuyên gia nông học) của Việt Nam. Bạn giao tiếp bằng tiếng Việt.
-    
     TRÁCH NHIỆM CỐT LÕI:
     1.  **Phân tích Dữ liệu Cảm biến (Ưu tiên hàng đầu):** Luôn kiểm tra "Ngữ cảnh Cảm biến (LIVE)" trước tiên. Dữ liệu này (độ ẩm, mưa, nhiệt độ) là sự thật quan trọng nhất.
     2.  **Phân tích Dữ liệu Vườn (Tĩnh):** Sử dụng "Ngữ cảnh Vườn (Tĩnh)" (loại cây, giai đoạn) để điều chỉnh lời khuyên.
     3.  **Đưa ra Lời khuyên Cụ thể:** Đừng nói chung chung. Đưa ra các bước hành động.
-    
     HƯỚNG DẪN CHI TIẾT:
     -   **Khi có dữ liệu LIVE (Độ ẩm):**
         -   Nếu độ ẩm thấp (ví dụ: < 30%): Khuyến nghị tưới ngay. Đề cập đến 'progress' (tiến độ) và 'today_water' (lượng nước) của vườn.
@@ -278,21 +242,27 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
     -   **Định dạng:** Sử dụng Markdown, emoji (🌱💧☀️) và bảng biểu khi cần.
     """
 
-    # Render past chat messages
+    # Render tin nhắn cũ
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
+        # SỬA LỖI 1 (Phần B): Map 'model' ngược lại 'assistant' để hiển thị
+        role_for_display = "assistant" if msg["role"] == "model" else msg["role"]
+        with st.chat_message(role_for_display):
             for img_b64 in msg.get("images_b64", []):
                 img_data = base64.b64decode(img_b64)
                 st.image(io.BytesIO(img_data), width=200, caption="Ảnh cây trồng")
             st.markdown(msg["content"])
 
+    # =======================================================
+    # --- SỬA LỖI 2 (Phần A): Logic xóa file uploader ---
+    # =======================================================
+    # Đặt logic này TRƯỚC khi st.file_uploader được gọi
+    if "clear_plant_image" in st.session_state and st.session_state.clear_plant_image:
+        st.session_state.pop("plant_image", None) 
+        st.session_state.clear_plant_image = False # Đặt lại cờ
+
+    # Upload ảnh
     st.subheader("📷 Tải ảnh lên")
-    uploaded_file = st.file_uploader(
-        "Chọn ảnh cây trồng",
-        type=["png", "jpg", "jpeg"],
-        key="plant_image",
-        help="Tải ảnh cây trồng để AI phân tích sức khỏe và vấn đề."
-    )
+    uploaded_file = st.file_uploader("Chọn ảnh cây trồng", type=["png", "jpg", "jpeg"], key="plant_image")
     if uploaded_file:
         st.image(uploaded_file, caption="Xem trước", width=100)
         if st.button("🔍 Phân tích ảnh"):
@@ -303,7 +273,7 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
     st.subheader("💬 Trò chuyện")
     prompt = st.chat_input("Hỏi về nông nghiệp...")
 
-    # Process user input
+    # Xử lý input
     user_prompt = None
     has_image = False
     if prompt:
@@ -316,9 +286,6 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
         has_image = uploaded_file is not None
 
     if user_prompt:
-        # Quan trọng: KHÔNG gửi ngữ cảnh (context) làm một phần của tin nhắn
-        # Ngữ cảnh đã được gửi trong system_prompt hoặc sẽ được thêm vào
-        
         images_b64 = []
         if has_image:
             img_bytes = uploaded_file.getvalue()
@@ -327,7 +294,7 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
             
         st.session_state.messages.append({
             "role": "user",
-            "content": user_prompt, # Chỉ gửi prompt của user
+            "content": user_prompt, 
             "images_b64": images_b64
         })
         with st.chat_message("user"):
@@ -335,70 +302,77 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
                 st.image(uploaded_file, caption="Ảnh cây trồng", width=200)
             st.markdown(user_prompt)
 
-        # Generate AI response using chat history
-        try:
-            # Configure Gemini model
-            model = genai.GenerativeModel(
-                "gemini-2.5-flash",
-                system_instruction=system_prompt, # Prompt hệ thống đã chứa ngữ cảnh tĩnh
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.7,
-                    top_p=0.9,
-                    max_output_tokens=1024
-                )
-            )
-            
-            # Build chat history
-            history = []
-            for msg in st.session_state.messages[:-1]: # Lấy tất cả trừ tin nhắn cuối
-                role = msg["role"]
-                parts = [msg["content"]]
-                for img_b64 in msg.get("images_b64", []):
-                    img_data = base64.b64decode(img_b64)
-                    img = Image.open(io.BytesIO(img_data))
-                    parts.append(img)
-                history.append({"role": role, "parts": parts})
-            
-            # Start or continue chat session
-            if "chat" not in st.session_state:
-                chat = model.start_chat(history=history)
-                st.session_state.chat = chat
-            else:
-                chat = st.session_state.chat
-            
-            # Chuẩn bị nội dung gửi: Ngữ cảnh LIVE + Prompt + Ảnh
-            current_parts = []
-            # Thêm ngữ cảnh LIVE vào tin nhắn
-            current_parts.append(f"**Ngữ cảnh MỚI NHẤT (LIVE SENSOR DATA):**\n{context}\n\n**Câu hỏi của tôi:**\n{user_prompt}")
-            
-            if has_image:
-                current_img = Image.open(io.BytesIO(uploaded_file.getvalue()))
-                current_parts.append(current_img)
-            
-            # Send the current user message with streaming
-            response_stream = chat.send_message(current_parts, stream=True)
-            
-            # Use st.write_stream to display the response with an animation
-            with st.chat_message("assistant"):
-                # The st.write_stream function handles the iteration and display
-                full_response = st.write_stream(response_stream)
-            
-            # Add the complete assistant message to history after streaming is done
-            st.session_state.messages.append({"role": "assistant", "content": full_response, "images_b64": []})
-            
-        except Exception as e:
-            ai_response = f"⚠️ Lỗi tạo phản hồi: {e}"
-            st.session_state.messages.append({"role": "assistant", "content": ai_response, "images_b64": []})
-            # Display error message
-            with st.chat_message("assistant"):
-                st.error(ai_response)
+        # Hiển thị tin nhắn của AI với spinner
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 CropNet AI đang suy nghĩ..."):
+                try:
+                    # 1. Khởi tạo model
+                    model = genai.GenerativeModel(
+                        "gemini-2.5-flash", # Sửa typo: từ 2.5 thành 1.5 (hoặc dùng phiên bản mới nhất có sẵn)
+                        system_instruction=system_prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=0.7, top_p=0.9, max_output_tokens=2048  # Tăng max tokens để tránh finish_reason=2 (MAX_TOKENS)
+                        )
+                    )
+                    
+                    # 2. Xây dựng lịch sử
+                    content_history = []
+                    for msg in st.session_state.messages[:-1]: # Lấy tất cả trừ tin nhắn cuối
+                        # =======================================================
+                        # --- SỬA LỖI 1 (Phần A): Map "assistant" -> "model" ---
+                        # =======================================================
+                        role = "model" if msg["role"] == "assistant" else msg["role"]
+                        
+                        parts = [msg["content"]]
+                        for img_b64 in msg.get("images_b64", []):
+                            img_data = base64.b64decode(img_b64)
+                            img = Image.open(io.BytesIO(img_data))
+                            parts.append(img)
+                        content_history.append({"role": role, "parts": parts})
+                    
+                    # 3. Xây dựng tin nhắn mới (với ngữ cảnh + ảnh)
+                    current_parts = []
+                    current_parts.append(f"**Ngữ cảnh MỚI NHẤT (LIVE SENSOR DATA):**\n{context}\n\n**Câu hỏi của tôi:**\n{user_prompt}")
+                    
+                    if has_image:
+                        current_img = Image.open(io.BytesIO(uploaded_file.getvalue()))
+                        current_parts.append(current_img)
+                    
+                    # 4. Thêm tin nhắn mới vào lịch sử (SỬA BUG CHÍNH: Thêm đúng định dạng dict thay vì str())
+                    content_history.append({"role": "user", "parts": current_parts})
+
+                    # 5. Gọi model.generate_content (chế độ chờ, KHÔNG stream)
+                    response = model.generate_content(content_history)
+
+                    ai_response = response.text  # Lấy text nếu hợp lệ
+                
+                except Exception as e:
+                    # Bắt lỗi TRƯỚC KHI stream (lỗi gọi API ban đầu)
+                    logger.error(f"Lỗi tạo phản hồi: {e}", exc_info=True)
+                    ai_response = f"⚠️ Lỗi tạo phản hồi. Vui lòng kiểm tra GOOGLE_API_KEY. Lỗi: {e}"
+
+                # 7. Hiển thị phản hồi
+                st.markdown(ai_response) 
         
+        # 8. Lưu phản hồi của AI vào session state
+        # =======================================================
+        # --- SỬA LỖI 1 (Phần B): Lưu là "model" ---
+        # =======================================================
+        st.session_state.messages.append({"role": "model", "content": ai_response, "images_b64": []})
+        
+        # 9. Xóa session 'chat' (nếu còn)
+        if "chat" in st.session_state:
+            del st.session_state.chat
+            
         # Xóa file upload sau khi xử lý
         if has_image:
-            st.session_state.plant_image = None # Xóa file uploader
-            st.rerun()
-
-    # Clear chat button at the bottom
+            # =======================================================
+            # --- SỬA LỖI 2 (Phần B): Đặt cờ để xóa ---
+            # =======================================================
+            st.session_state.clear_plant_image = True
+            st.rerun() # Rerun chỉ khi có ảnh để xóa ảnh
+            
+    # Nút Xóa Chat (Giữ nguyên)
     col_clear, _ = st.columns([1, 4])
     with col_clear:
         if st.button("🧹 Xóa Toàn bộ Chat"):
@@ -409,9 +383,9 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
                 del st.session_state.analyze_image
             if "default_prompt" in st.session_state:
                 del st.session_state.default_prompt
+            
+            # SỬA LỖI 2 (Phần C): Cũng xóa cờ nếu người dùng xóa chat
+            if "clear_plant_image" in st.session_state:
+                del st.session_state.clear_plant_image
+                
             st.rerun()
-
-# ---
-# Để chạy file này, bạn cần có file `database.py` 
-# và file app chính (ví dụ `app.py`) có thể gọi `render_chat()`
-# ---

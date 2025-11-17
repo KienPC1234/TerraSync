@@ -10,7 +10,7 @@ from database import db
 
 # --- ĐÃ THAY ĐỔI: Import send_email thay vì send_push_notification ---
 try:
-    from utils.email_sender import send_email
+    from mail_sender import send_email
 except ImportError:
     print("Cảnh báo: Không thể import 'utils.email_sender'. Chức năng email sẽ không hoạt động.")
     # Tạo hàm giả để code không bị lỗi
@@ -21,7 +21,7 @@ except ImportError:
 
 
 # Constants
-CHECK_INTERVAL_SECONDS = 30  # 5 minutes
+CHECK_INTERVAL_SECONDS = 10  # 5 minutes
 DB_FILE_PATH = os.path.abspath('terrasync_db.json')
 print ("DB:",str(DB_FILE_PATH))
 # --- Các hằng số cho logic tưới tiêu ---
@@ -35,7 +35,8 @@ RAIN_INTENSITY_THRESHOLD = 1.0   # Ngưỡng mưa (mm/h) để coi là "đang m�
 
 def get_user_by_email(email: str):
     """Fetches a user from the database by their email."""
-    users = db.get_all('users')
+    # SỬA LỖI: db.get_all -> db.get
+    users = db.get('users')
     for user in users:
         if user.get('email') == email:
             return user
@@ -43,7 +44,8 @@ def get_user_by_email(email: str):
 
 def get_hub_owner_email(hub_id: str):
     """Fetches the owner's email for a given hub_id."""
-    hubs = db.get_all('iot_hubs')
+    # SỬA LỖI: db.get_all -> db.get
+    hubs = db.get('iot_hubs')
     for hub in hubs:
         if hub.get('hub_id') == hub_id:
             return hub.get('user_email')
@@ -57,7 +59,8 @@ def process_alerts():
     print(f"[{datetime.now()}] Checking for new critical alerts...")
     
     try:
-        alerts = db.get_all('alerts')
+        # SỬA LỖI: db.get_all -> db.get
+        alerts = db.get('alerts')
         if not alerts:
             print("No alerts found.")
             return
@@ -105,7 +108,14 @@ def process_alerts():
                     notifications_sent += 1
                     
                     # Cập nhật lại vào DB (dùng index)
-                    db.update('alerts', i, alert)
+                    # LƯU Ý: Hàm db.update của bạn yêu cầu filter_dict, không phải index
+                    # Chúng ta nên update bằng ID của alert
+                    alert_id = alert.get('id')
+                    if alert_id:
+                        db.update('alerts', {'id': alert_id}, alert)
+                    else:
+                        print(f"Warning: Alert {i} không có ID, không thể cập nhật.")
+                        
                 else:
                     print(f"Error sending email: {result.get('message') if result else 'Unknown error'}")
 
@@ -159,9 +169,10 @@ def calculate_auto_irrigation():
     
     try:
         # 1. Tải tất cả các bảng cần thiết từ DB
-        all_hubs = db.get_all('iot_hubs')
-        all_fields = db.get_all('fields') # Dùng bảng 'fields' gốc
-        all_telemetry = db.get_all('telemetry')
+        # SỬA LỖI: db.get_all -> db.get
+        all_hubs = db.get('iot_hubs')
+        all_fields = db.get('fields') # Dùng bảng 'fields' gốc
+        all_telemetry = db.get('telemetry')
 
         if not all_hubs or not all_fields:
             print("No hubs or fields found. Skipping irrigation logic.")
@@ -218,19 +229,19 @@ def calculate_auto_irrigation():
             
             # Logic 3: Nếu đất quá ẩm (và không mưa)
             elif avg_moisture is not None and avg_moisture > HIGH_MOISTURE_THRESHOLD:
-                 if new_status != 'hydrated' or new_progress != 100:
-                    new_status = 'hydrated'
-                    new_progress = 100
-                    new_time_needed = 0
-                    field_changed = True
-                    print(f"Field '{field.get('name')}': Đất ẩm ({avg_moisture}%). Ngừng tưới.")
+                   if new_status != 'hydrated' or new_progress != 100:
+                        new_status = 'hydrated'
+                        new_progress = 100
+                        new_time_needed = 0
+                        field_changed = True
+                        print(f"Field '{field.get('name')}': Đất ẩm ({avg_moisture}%). Ngừng tưới.")
 
             # Logic 4: Nếu đất ở mức tốt (và không mưa)
             elif avg_moisture is not None:
                 # Nếu trước đó đang 'cần tưới' (dehydrated)
                 if new_status == 'dehydrated':
                     new_status = 'hydrated' # Chuyển sang 'hydrated'
-                    new_progress = 100     # Đánh dấu hoàn thành
+                    new_progress = 100      # Đánh dấu hoàn thành
                     new_time_needed = 0
                     field_changed = True
                     print(f"Field '{field.get('name')}': Độ ẩm tốt ({avg_moisture}%).")
@@ -241,9 +252,13 @@ def calculate_auto_irrigation():
                 field['progress'] = new_progress
                 field['time_needed'] = new_time_needed
                 
-                # Cập nhật bằng index, giống như cách process_alerts làm
-                db.update('fields', field_index, field)
-                fields_updated += 1
+                # Cập nhật bằng ID, vì hàm update yêu cầu filter_dict
+                field_id_to_update = field.get('id')
+                if field_id_to_update:
+                    db.update('fields', {'id': field_id_to_update}, field)
+                    fields_updated += 1
+                else:
+                    print(f"Warning: Field {field_index} không có ID, không thể cập nhật.")
         
         if fields_updated > 0:
             print(f"Finished irrigation calculations. Updated {fields_updated} fields.")

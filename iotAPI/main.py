@@ -105,7 +105,7 @@ class APIResponse(BaseModel):
 # --- Khởi tạo FastAPI ---
 app = FastAPI(
     title="TerraSync IoT API",
-    version="1.1.0 (Optimized)",
+    version="1.2.0 (Unlimited Telemetry)",
     description="IoT data ingestion and management API for TerraSync smart farming system",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -120,91 +120,136 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Cấu hình dọn dẹp tự động ---
+# --- Cấu hình dọn dẹp tự động (Không thay đổi) ---
 ALERT_RETENTION_DAYS = 30
+TELEMETRY_RETENTION_DAYS = 90 # Thêm hằng số mới cho dọn dẹp Telemetry
 
 @app.on_event("startup")
 @repeat_every(seconds=60 * 60 * 24)  # Chạy mỗi 24 giờ
-async def cleanup_old_alerts():
-    """Tự động dọn dẹp các cảnh báo cũ"""
+async def cleanup_old_data():
+    """Tự động dọn dẹp các cảnh báo VÀ telemetry cũ"""
+    
+    # 1. Dọn dẹp Alerts
     logger.info("Đang chạy tác vụ dọn dẹp Alert...")
     try:
         all_alerts = db.get("alerts")
         if not all_alerts:
             logger.info("Không có Alert nào để dọn dẹp.")
-            return
-
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=ALERT_RETENTION_DAYS)
-        
-        # Giữ lại các alert "mới"
-        fresh_alerts = []
-        for alert in all_alerts:
-            # Đảm bảo 'created_at' là
-            created_at_str = alert.get("created_at")
-            if isinstance(created_at_str, str):
-                try:
-                    alert_time = datetime.fromisoformat(created_at_str)
-                    if alert_time > cutoff_date:
-                        fresh_alerts.append(alert)
-                except ValueError:
-                    fresh_alerts.append(alert) # Giữ lại nếu không thể parse
-            else:
-                 fresh_alerts.append(alert) # Giữ lại nếu định dạng lạ
-
-        if len(fresh_alerts) < len(all_alerts):
-            # Giả định db có hàm `overwrite_table` để ghi đè toàn bộ bảng
-            # Bạn cần tự triển khai hàm này trong `database.py`
-            # Nó nên ghi đè toàn bộ nội dung của bảng "alerts" bằng `fresh_alerts`
-            db.overwrite_table("alerts", fresh_alerts)
-            logger.info(f"Đã dọn dẹp {len(all_alerts) - len(fresh_alerts)} alert cũ.")
         else:
-            logger.info("Không có alert cũ nào cần dọn dẹp.")
-            
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=ALERT_RETENTION_DAYS)
+            fresh_alerts = []
+            for alert in all_alerts:
+                created_at_str = alert.get("created_at")
+                if isinstance(created_at_str, str):
+                    try:
+                        alert_time = datetime.fromisoformat(created_at_str)
+                        if alert_time > cutoff_date:
+                            fresh_alerts.append(alert)
+                    except ValueError:
+                        fresh_alerts.append(alert) # Giữ lại nếu không thể parse
+                else:
+                    fresh_alerts.append(alert) # Giữ lại nếu định dạng lạ
+
+            if len(fresh_alerts) < len(all_alerts):
+                db.overwrite_table("alerts", fresh_alerts)
+                logger.info(f"Đã dọn dẹp {len(all_alerts) - len(fresh_alerts)} alert cũ.")
+            else:
+                logger.info("Không có alert cũ nào cần dọn dẹp.")
     except Exception as e:
         logger.error(f"Lỗi khi dọn dẹp alert: {e}")
-    
-    # QUAN TRỌNG: Bạn cần tự tạo hàm `overwrite_table` trong `database.py`.
-    # Nó có thể trông như thế này nếu bạn dùng JSON:
-    # def overwrite_table(self, table_name, data):
-    #     self.db[table_name] = data
-    #     self._write_db()
+
+    # 2. Dọn dẹp Telemetry
+    logger.info("Đang chạy tác vụ dọn dẹp Telemetry...")
+    try:
+        all_telemetry = db.get("telemetry")
+        if not all_telemetry:
+            logger.info("Không có Telemetry nào để dọn dẹp.")
+            return
+
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=TELEMETRY_RETENTION_DAYS)
+        fresh_telemetry = []
+        for record in all_telemetry:
+            timestamp_str = record.get("timestamp")
+            if isinstance(timestamp_str, str):
+                try:
+                    record_time = datetime.fromisoformat(timestamp_str)
+                    if record_time > cutoff_date:
+                        fresh_telemetry.append(record)
+                except ValueError:
+                    fresh_telemetry.append(record) # Giữ lại nếu không thể parse
+            else:
+                fresh_telemetry.append(record) # Giữ lại nếu định dạng lạ
+
+        if len(fresh_telemetry) < len(all_telemetry):
+            db.overwrite_table("telemetry", fresh_telemetry)
+            logger.info(f"Đã dọn dẹp {len(all_telemetry) - len(fresh_telemetry)} bản ghi telemetry cũ.")
+        else:
+            logger.info("Không có telemetry cũ nào cần dọn dẹp.")
+            
+    except Exception as e:
+        logger.error(f"Lỗi khi dọn dẹp telemetry: {e}")
 
 
 # --- Logic nghiệp vụ (Tách riêng) ---
 
+# --- ĐÃ SỬA: Thêm nhiều alert 'critical' hơn ---
 def evaluate_alerts(payload: TelemetryPayload) -> List[AlertRecord]:
-    """Phân tích dữ liệu cảm biến và tạo cảnh báo (Không thay đổi)"""
+    """Phân tích dữ liệu cảm biến và tạo cảnh báo (ĐÃ SỬA: Thêm nhiều alert 'critical')"""
     alerts: List[AlertRecord] = []
     current_time = datetime.now(timezone.utc)
     
-    # Soil moisture alerts
+    # === Soil Alerts ===
     for node in payload.data.soil_nodes:
         moisture = node.sensors.soil_moisture
         temperature = node.sensors.soil_temperature
         
-        if moisture < 20:
-            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"🚨 Critical: Soil moisture at {node.node_id} is extremely low ({moisture:.1f}%) - Immediate irrigation needed!", level="critical", created_at=current_time))
-        elif moisture < 30:
-            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"⚠️ Warning: Soil moisture at {node.node_id} is low ({moisture:.1f}%) - Consider irrigation", level="warning", created_at=current_time))
-        elif moisture > 85:
-            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"💧 Info: Soil moisture at {node.node_id} is high ({moisture:.1f}%) - Reduce irrigation", level="info", created_at=current_time))
+        # --- Soil Moisture ---
+        if moisture < 20: # Mức 1: Critical
+            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"🚨 KHẨN CẤP: Độ ẩm đất tại {node.node_id} CỰC THẤP ({moisture:.1f}%) - Yêu cầu tưới NGAY LẬP TỨC!", level="critical", created_at=current_time))
+        elif moisture < 30: # Mức 2: Warning
+            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"⚠️ Cảnh báo: Độ ẩm đất tại {node.node_id} đang ở mức thấp ({moisture:.1f}%) - Lên kế hoạch tưới", level="warning", created_at=current_time))
+        elif moisture > 90: # Sửa từ 85 -> 90
+            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"💧 Thông tin: Đất tại {node.node_id} rất ẩm ({moisture:.1f}%) - Nguy cơ ngập úng", level="info", created_at=current_time))
         
-        # Soil temperature alerts
-        if temperature > 40:
-            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"🌡️ Warning: Soil temperature at {node.node_id} is very high ({temperature:.1f}°C) - Check for heat stress", level="warning", created_at=current_time))
-        elif temperature < 5:
-            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"❄️ Warning: Soil temperature at {node.node_id} is very low ({temperature:.1f}°C) - Check for frost damage", level="warning", created_at=current_time))
+        # --- Soil Temperature ---
+        if temperature > 50: # Mức 1: Critical (Rất nóng)
+            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"🚨 KHẨN CẤP: Nhiệt độ đất tại {node.node_id} CỰC CAO ({temperature:.1f}°C) - Nguy cơ hỏng rễ!", level="critical", created_at=current_time))
+        elif temperature > 40: # Mức 2: Warning (Nóng)
+            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"🌡️ Cảnh báo: Nhiệt độ đất tại {node.node_id} cao ({temperature:.1f}°C) - Kiểm tra stress nhiệt", level="warning", created_at=current_time))
+        elif temperature < 0: # Mức 3: Critical (Đóng băng)
+            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"🚨 KHẨN CẤP: Nhiệt độ đất tại {node.node_id} DƯỚI 0°C ({temperature:.1f}°C) - Nguy cơ đóng băng!", level="critical", created_at=current_time))
+        elif temperature < 5: # Mức 4: Warning (Lạnh)
+            alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=node.node_id, message=f"❄️ Cảnh báo: Nhiệt độ đất tại {node.node_id} rất thấp ({temperature:.1f}°C) - Kiểm tra sương giá", level="warning", created_at=current_time))
     
-    # Atmospheric alerts
+    # === Atmospheric Alerts ===
     atm = payload.data.atmospheric_node.sensors
-    if atm.wind_speed > 15:
-        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=payload.data.atmospheric_node.node_id, message=f"💨 Warning: High wind speed detected ({atm.wind_speed:.1f} m/s) - Adjust irrigation schedule", level="warning", created_at=current_time))
-    if atm.rain_intensity > 10:
-        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=payload.data.atmospheric_node.node_id, message=f"🌧️ Info: Heavy rain detected ({atm.rain_intensity:.1f} mm/h) - Skip irrigation", level="info", created_at=current_time))
-    if atm.air_humidity > 90:
-        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=payload.data.atmospheric_node.node_id, message=f"💧 Info: High humidity ({atm.air_humidity:.1f}%) - Reduce irrigation frequency", level="info", created_at=current_time))
+    atm_node_id = payload.data.atmospheric_node.node_id
+
+    # --- Wind Speed ---
+    if atm.wind_speed > 25: # Mức 1: Critical (Bão)
+        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=atm_node_id, message=f"🚨 KHẨN CẤP: Gió CỰC MẠNH ({atm.wind_speed:.1f} m/s) - Nguy cơ bão, gãy đổ!", level="critical", created_at=current_time))
+    elif atm.wind_speed > 15: # Mức 2: Warning (Gió to)
+        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=atm_node_id, message=f"💨 Cảnh báo: Gió mạnh ({atm.wind_speed:.1f} m/s) - Cân nhắc gia cố", level="warning", created_at=current_time))
+    
+    # --- Rain Intensity ---
+    if atm.rain_intensity > 50: # Mức 1: Critical (Lũ lụt)
+        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=atm_node_id, message=f"🚨 KHẨN CẤP: Mưa CỰC LỚN ({atm.rain_intensity:.1f} mm/h) - Nguy cơ lũ lụt!", level="critical", created_at=current_time))
+    elif atm.rain_intensity > 10: # Mức 2: Info (Mưa to)
+        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=atm_node_id, message=f"🌧️ Thông tin: Đang mưa to ({atm.rain_intensity:.1f} mm/h) - Dừng tưới", level="info", created_at=current_time))
+    
+    # --- Air Temperature (MỚI) ---
+    if atm.air_temperature > 45: # Mức 1: Critical (Nắng nóng gay gắt)
+        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=atm_node_id, message=f"🚨 KHẨN CẤP: Nhiệt độ không khí CỰC CAO ({atm.air_temperature:.1f}°C) - Nguy cơ sốc nhiệt!", level="critical", created_at=current_time))
+    elif atm.air_temperature < 0: # Mức 2: Critical (Băng giá)
+        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=atm_node_id, message=f"🚨 KHẨN CẤP: Nhiệt độ không khí DƯỚI 0°C ({atm.air_temperature:.1f}°C) - Nguy cơ băng giá!", level="critical", created_at=current_time))
+
+    # --- Humidity ---
+    if atm.air_humidity > 95: # Sửa từ 90 -> 95
+        alerts.append(AlertRecord(hub_id=payload.hub_id, node_id=atm_node_id, message=f"💧 Thông tin: Độ ẩm không khí rất cao ({atm.air_humidity:.1f}%) - Nguy cơ nấm mốc", level="info", created_at=current_time))
     
     return alerts
+# --- KẾT THÚC SỬA 1 ---
+
 
 def store_alert(alert: AlertRecord) -> None:
     """Lưu alert vào database"""
@@ -225,75 +270,42 @@ def serialize_payload(payload: TelemetryPayload) -> Dict[str, Any]:
     body["timestamp"] = payload.timestamp.replace(tzinfo=timezone.utc).isoformat()
     return body
 
+
+# --- ĐÃ SỬA: Bỏ giới hạn, chỉ thêm telemetry mới ---
 def process_telemetry(payload: TelemetryPayload):
     """
     Hàm này được chạy trong background task.
-    Nó thực hiện tất cả công việc "chậm"
-    VÀ GIỚI HẠN LỊCH SỬ TELEMETRY: Chỉ giữ lại 2 bản ghi mới nhất cho mỗi hub.
+    (ĐÃ SỬA: Bỏ giới hạn, chỉ thêm telemetry mới)
     """
     try:
         # 1. Chuẩn bị bản ghi mới
         new_record = serialize_payload(payload)
-        current_hub_id = payload.hub_id
-
-        # 2. Lấy TOÀN BỘ telemetry hiện có
-        # CẢNH BÁO: Thao tác này rất tốn kém (non-scalable)
-        # Nó BẮT BUỘC phải có nếu dùng DB dạng file (giống MockDB)
-        try:
-            # Dùng db.get không query để lấy tất cả
-            all_telemetry = db.get("telemetry") 
-        except Exception:
-            all_telemetry = [] # Khởi tạo nếu bảng không tồn tại
-
-        # 3. Phân loại:
-        hub_records = []
-        other_hub_records = []
         
-        for item in all_telemetry:
-            # Kiểm tra an toàn phòng khi item không có 'hub_id'
-            if item and item.get("hub_id") == current_hub_id:
-                hub_records.append(item)
-            else:
-                other_hub_records.append(item)
-        
-        # 4. Sắp xếp các bản ghi CŨ của hub này (mới nhất -> cũ nhất)
-        hub_records.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+        # 2. Thêm thẳng bản ghi mới vào DB
+        # Không cần get_all, không cần overwrite_table để giới hạn
+        db.add("telemetry", new_record)
 
-        # 5. Tạo danh sách bản ghi mới cho hub này (Tối đa 2)
-        new_records_for_this_hub = [new_record] # Thêm bản ghi MỚI NHẤT
-        
-        if hub_records: # Nếu có lịch sử
-            # Thêm bản ghi CŨ MỚI NHẤT (trước đó)
-            new_records_for_this_hub.append(hub_records[0]) 
-
-        # 6. Tạo danh sách telemetry cuối cùng
-        # Gồm: bản ghi của các hub khác + 2 bản ghi mới nhất của hub này
-        final_telemetry_list = other_hub_records + new_records_for_this_hub
-
-        # 7. Ghi đè toàn bộ bảng "telemetry"
-        # Đây là cách duy nhất để "xóa" bản ghi cũ
-        db.overwrite_table("telemetry", final_telemetry_list)
-
-        # 8. Phân tích và lưu trữ alerts (như cũ)
+        # 3. Phân tích và lưu trữ alerts (như cũ)
         alerts = evaluate_alerts(payload)
         for alert in alerts:
             store_alert(alert)
         
-        logger.info(f"Đã xử lý xong telemetry cho hub {payload.hub_id} (giữ 2). Tạo {len(alerts)} alerts.")
+        logger.info(f"Đã xử lý xong telemetry cho hub {payload.hub_id} (thêm mới). Tạo {len(alerts)} alerts.")
     except Exception as e:
         logger.error(f"Lỗi background task khi xử lý hub {payload.hub_id}: {e}")
+# --- KẾT THÚC SỬA 2 ---
 
 
-# --- API Endpoints ---
+# --- API Endpoints (Không thay đổi) ---
 
 @app.get("/", response_model=APIResponse)
 async def root():
     """Root endpoint với thông tin API"""
     return APIResponse(
         status="success",
-        message="TerraSync IoT API v1.1.0 (Optimized) - Smart Farming Data Ingestion",
+        message="TerraSync IoT API v1.2.0 - Smart Farming Data Ingestion",
         data={
-            "version": "1.1.0",
+            "version": "1.2.0",
             "endpoints": {
                 "data_ingest": "/api/v1/data/ingest",
                 "data_latest": "/api/v1/data/latest",
