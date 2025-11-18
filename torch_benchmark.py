@@ -1,11 +1,12 @@
-import torch, time
+import torch
+import time
 
 # Kiểm tra GPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device, torch.cuda.get_device_name(0))
 print("Device Capability:", torch.cuda.get_device_capability(0))
-print("Cudnn Version:",torch.backends.cudnn.version())  # xem cuDNN
-print("Cudnn:",torch.backends.cudnn.enabled)    # True nếu dùng cuDNN
+print("Cudnn Version:", torch.backends.cudnn.version())  # xem cuDNN
+print("Cudnn:", torch.backends.cudnn.enabled)    # True nếu dùng cuDNN
 
 
 # Thiết lập kích thước tensor

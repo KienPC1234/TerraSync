@@ -1,127 +1,26 @@
-import math
 import os
-import random
-from copy import deepcopy
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+import requests  # Đã thêm thư viện requests
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
-import requests
-from iot_api_client import get_iot_client
+# Giả sử bạn có module này
+from iot_api_client import get_iot_client 
+from database import db, crop_db
 
-
-DEFAULT_FIELDS: List[Dict[str, Any]] = [
-    {
-        "id": 1,
-        "name": "Blueberry Field",
-        "crop": "Blueberry",
-        "area": 675.45,
-        "status": "hydrated",
-        "today_water": 80,
-        "time_needed": 4,
-        "progress": 95,
-        "days_to_harvest": 48,
-        "lat": 35.6229,
-        "lon": -120.6933,
-        "stage": "Adult",
-        "node_id": "soil-01",
-        "center": [35.6229, -120.6933],
-        "polygon": [
-            [35.6225, -120.6938],
-            [35.6230, -120.6938],
-            [35.6230, -120.6928],
-            [35.6225, -120.6928],
-        ],
-    },
-    {
-        "id": 2,
-        "name": "Avocado Field",
-        "crop": "Avocado",
-        "area": 585.39,
-        "status": "dehydrated",
-        "today_water": 63,
-        "time_needed": 3.5,
-        "progress": 32,
-        "days_to_harvest": 120,
-        "lat": 35.6235,
-        "lon": -120.6940,
-        "stage": "Adult",
-        "node_id": "soil-02",
-        "center": [35.6235, -120.6940],
-        "polygon": [
-            [35.6230, -120.6945],
-            [35.6240, -120.6945],
-            [35.6240, -120.6935],
-            [35.6230, -120.6935],
-        ],
-    },
-    {
-        "id": 3,
-        "name": "Corn Field A",
-        "crop": "Corn",
-        "area": 720.48,
-        "status": "severely_dehydrated",
-        "today_water": 157,
-        "time_needed": 11,
-        "progress": 0,
-        "days_to_harvest": 90,
-        "lat": 35.6215,
-        "lon": -120.6920,
-        "stage": "Seedling",
-        "node_id": "soil-03",
-        "center": [35.6215, -120.6920],
-        "polygon": [
-            [35.6210, -120.6925],
-            [35.6220, -120.6925],
-            [35.6220, -120.6915],
-            [35.6210, -120.6915],
-        ],
-    },
-]
-
-CROP_DB = {
-    "Blueberry": {
-        "water_requirements": 80,
-        "growth_stages": ["Seedling", "Juvenile", "Adult", "Fruiting"]
-    },
-    "Avocado": {
-        "water_requirements": 120,
-        "growth_stages": ["Seedling", "Juvenile", "Adult", "Fruiting"]
-    },
-    "Corn": {
-        "water_requirements": 150,
-        "growth_stages": ["Seedling", "Vegetative", "Reproductive", "Maturity"]
-    }
-}
-
-def add_crop(name: str, characteristics: Dict[str, Any]):
-    """Add new crop to database"""
-    CROP_DB[name] = characteristics
-    # In a real implementation, save to database
-
-def generate_crop_characteristics(name: str) -> Dict[str, Any]:
-    """AI-generated placeholder for crop characteristics"""
-    return {
-        "water_requirements": random.randint(50, 200),
-        "growth_stages": ["Seedling", "Growth", "Maturity"]
-    }
-
-def get_default_fields() -> List[Dict[str, Any]]:
-    return deepcopy(DEFAULT_FIELDS)
 
 def get_fields_from_db() -> Optional[List[Dict[str, Any]]]:
     """Lấy fields từ database cho user hiện tại"""
     try:
-        from database import db
         import streamlit as st
-        
+
         if hasattr(st, 'user') and st.user.is_logged_in:
             user_email = st.user.email
             if user_email:
-                user_fields = db.get_user_fields(user_email)
+                user_fields = db.get_fields_by_user(user_email)
                 if user_fields:
                     return user_fields
     except Exception as e:
-        print(f"Error getting fields from database: {e}")
+        print(f"Lỗi khi lấy dữ liệu từ database: {e}")
     return None
 
 
@@ -135,27 +34,120 @@ def fetch_latest_telemetry(hub_id: Optional[str] = None) -> Dict[str, Any]:
     return client.get_latest_data(hub_id=hub_id) or {}
 
 
-def fetch_history(hub_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+def fetch_history(
+        hub_id: Optional[str] = None,
+        limit: int = 50) -> List[Dict[str, Any]]:
     client = get_iot_client()
     return client.get_data_history(hub_id=hub_id, limit=limit)
 
 
-def fetch_alerts(hub_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+def fetch_alerts(
+        hub_id: Optional[str] = None,
+        limit: int = 50) -> List[Dict[str, Any]]:
     client = get_iot_client()
     return client.get_alerts(hub_id=hub_id, limit=limit)
 
 
-def _aggregate_soil_moisture(telemetry: Optional[Dict[str, Any]]) -> Optional[float]:
+def _aggregate_soil_moisture(
+        telemetry: Optional[Dict[str, Any]]) -> Optional[float]:
     if not telemetry:
         return None
     soil_nodes = telemetry.get("data", {}).get("soil_nodes", [])
     if not soil_nodes:
         return None
-    total = sum(node.get("sensors", {}).get("soil_moisture", 0.0) for node in soil_nodes)
-    return total / len(soil_nodes)
+    
+    values = []
+    for node in soil_nodes:
+        val = node.get("sensors", {}).get("soil_moisture")
+        if val is not None:
+            values.append(val)
+            
+    if not values:
+        return None
+        
+    return sum(values) / len(values)
 
 
-def generate_schedule(telemetry: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def get_latest_telemetry_stats(user_email: str, field_id: str) -> Dict[str, Any]:
+    """
+    Lấy thống kê telemetry mới nhất cho một field cụ thể.
+    """
+    hubs = db.get("iot_hubs", {"field_id": field_id, "user_email": user_email})
+    if not hubs:
+        return {}
+    
+    hub_id = hubs[0].get("hub_id")
+    all_telemetry = db.get("telemetry", {"hub_id": hub_id})
+    
+    if not all_telemetry:
+        return {}
+        
+    try:
+        latest_entry = sorted(all_telemetry, key=lambda x: x.get('timestamp', ''), reverse=True)[0]
+    except (IndexError, ValueError):
+        return {}
+
+    avg_moisture = _aggregate_soil_moisture(latest_entry)
+    rain_intensity = 0.0
+    timestamp = latest_entry.get("timestamp")
+    
+    data = latest_entry.get("data", {})
+    if "atmospheric_node" in data:
+        sensors = data["atmospheric_node"].get("sensors", {})
+        rain_intensity = sensors.get("rain_intensity", 0.0)
+        
+    return {
+        "avg_moisture": avg_moisture,
+        "rain_intensity": rain_intensity,
+        "timestamp": timestamp
+    }
+
+
+def fetch_forecast(lat: float, lon: float) -> Optional[List[Dict[str, Any]]]:
+    """
+    Hàm mới thêm: Lấy dự báo thời tiết từ Open-Meteo API.
+    """
+    try:
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": "temperature_2m,precipitation,wind_speed_10m",
+            "timezone": "auto"
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        hourly = data.get("hourly", {})
+        
+        times = hourly.get("time", [])
+        temps = hourly.get("temperature_2m", [])
+        precips = hourly.get("precipitation", [])
+        winds = hourly.get("wind_speed_10m", [])
+        
+        formatted_data = []
+        # Chỉ lấy tối đa khoảng 168 giờ (7 ngày) hoặc ít hơn tùy dữ liệu trả về
+        count = min(len(times), len(temps), len(precips), len(winds))
+        
+        for i in range(count):
+            formatted_data.append({
+                "time": times[i],
+                "temperature": temps[i],
+                "precipitation": precips[i],
+                "wind_speed": winds[i]
+            })
+            
+        return formatted_data
+
+    except Exception as e:
+        print(f"Lỗi khi lấy dữ liệu thời tiết: {e}")
+        return None
+
+
+def generate_schedule(
+        telemetry: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     schedule: List[Dict[str, Any]] = []
     base_date = datetime.now()
     baseline = 450.0
@@ -176,161 +168,99 @@ def generate_schedule(telemetry: Optional[Dict[str, Any]] = None) -> List[Dict[s
     return schedule
 
 
-def _jitter(value: float, spread: float) -> float:
-    return value + random.uniform(-spread, spread)
-
-
-def generate_demo_payload(
-    hub_id: Optional[str] = None,
-    base_payload: Optional[Dict[str, Any]] = None,
-    include_third_node: bool = True,
-) -> Dict[str, Any]:
-    payload = deepcopy(base_payload or {})
-    payload["hub_id"] = hub_id or os.getenv("DEMO_HUB_ID", "demo-hub-001")
-    now = datetime.now(timezone.utc)
-    payload["timestamp"] = now.isoformat().replace("+00:00", "Z")
-    if payload.get("location"):
-        payload["location"]["lat"] = round(_jitter(payload["location"]["lat"], 0.0012), 6)
-        payload["location"]["lon"] = round(_jitter(payload["location"]["lon"], 0.0012), 6)
-
-    soil_nodes = payload.setdefault("data", {}).setdefault("soil_nodes", [])
-    if include_third_node and not any(node.get("node_id") == "soil-03" for node in soil_nodes):
-        soil_nodes.append(
-            {
-                "node_id": "soil-03",
-                "sensors": {"soil_moisture": 28.4, "soil_temperature": 25.4},
-            }
-        )
-
-    for node in soil_nodes:
-        sensors = node.setdefault("sensors", {})
-        base_moisture = sensors.get("soil_moisture", 35.0)
-        sensors["soil_moisture"] = round(max(5.0, min(95.0, base_moisture + random.uniform(-6.0, 6.0))), 1)
-        base_temp = sensors.get("soil_temperature", 26.0)
-        sensors["soil_temperature"] = round(base_temp + random.uniform(-1.6, 1.6), 1)
-
-    atm_sensors = (
-        payload.setdefault("data", {})
-        .setdefault("atmospheric_node", {})
-        .setdefault("sensors", {})
-    )
-    atm_sensors["air_temperature"] = round(atm_sensors.get("air_temperature", 30.0) + random.uniform(-1.8, 1.8), 1)
-    atm_sensors["air_humidity"] = round(max(30.0, min(99.0, atm_sensors.get("air_humidity", 70.0) + random.uniform(-4.5, 4.5))), 1)
-    atm_sensors["rain_intensity"] = round(max(0.0, atm_sensors.get("rain_intensity", 0.0) + random.uniform(-0.5, 2.5)), 2)
-    atm_sensors["wind_speed"] = round(max(0.0, atm_sensors.get("wind_speed", 2.0) + random.uniform(-0.8, 1.2)), 2)
-    atm_sensors["light_intensity"] = round(max(100.0, atm_sensors.get("light_intensity", 900.0) + random.uniform(-120.0, 150.0)), 1)
-    atm_sensors["barometric_pressure"] = round(atm_sensors.get("barometric_pressure", 1008.0) + random.uniform(-2.2, 2.2), 1)
-
-    payload.setdefault("meta", {})["ingest_id"] = str(uuid4())
-    return payload
-
-
-def send_demo_payload(
-    api_base: Optional[str] = None,
-    hub_id: Optional[str] = None,
-) -> Tuple[bool, str, Dict[str, Any]]:
-    payload = generate_demo_payload(hub_id=hub_id)
-    base = api_base or get_api_base()
-    try:
-        response = requests.post(
-            f"{base}/api/v1/data/ingest",
-            json=payload,
-            timeout=8,
-        )
-        if response.status_code == 200:
-            meta = response.json()
-            return True, "Demo telemetry injected", {"payload": payload, "response": meta}
-        return (
-            False,
-            f"IoT API responded with status {response.status_code}: {response.text}",
-            {"payload": payload},
-        )
-    except Exception as exc:  # noqa: BLE001
-        return False, f"Failed to reach IoT API: {exc}", {"payload": payload}
-
-
-def fetch_forecast(
-    lat: float,
-    lon: float,
-    hours: int = 24,
-    api_endpoint: str = "https://api.open-meteo.com/v1/forecast",
-) -> List[Dict[str, Any]]:
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": "temperature_2m,precipitation,wind_speed_10m,weathercode",
-        "forecast_days": 1,
-        "timezone": "UTC",
-    }
-    try:
-        response = requests.get(api_endpoint, params=params, timeout=6)
-        if response.status_code == 200:
-            payload = response.json()
-            hourly = payload.get("hourly", {})
-            times = hourly.get("time", [])
-            temps = hourly.get("temperature_2m", [])
-            prec = hourly.get("precipitation", [])
-            wind = hourly.get("wind_speed_10m", [])
-            code = hourly.get("weathercode", [])
-            forecast: List[Dict[str, Any]] = []
-            for idx, t in enumerate(times[:hours]):
-                forecast.append(
-                    {
-                        "time": t,
-                        "temperature": temps[idx] if idx < len(temps) else None,
-                        "precipitation": prec[idx] if idx < len(prec) else None,
-                        "wind_speed": wind[idx] if idx < len(wind) else None,
-                        "weather_code": code[idx] if idx < len(code) else None,
-                    }
-                )
-            if forecast:
-                return forecast
-    except Exception:
-        return [] # Return empty list instead of sample forecast
-    return [] # Return empty list instead of sample forecast
-
-def predict_water_needs(field: Dict[str, Any], telemetry: Optional[Dict[str, Any]]) -> float:
+def predict_water_needs(
+        field: Dict[str, Any],
+        telemetry: Optional[Dict[str, Any]]) -> float:
     """
-    Dự đoán lượng nước cần thiết cho một ruộng dựa trên dữ liệu IoT.
+    Dự đoán lượng nước cần thiết (m3).
     """
-    water_needed = 0.0
-
-    # Lấy thông tin cây trồng
     crop_type = field.get("crop")
-    crop_info = CROP_DB.get(crop_type, {})
-    base_water_requirement = crop_info.get("water_requirements", 100) # Mặc định 100mm
+    all_crops = crop_db.get("crops")
+    crop_info = next((c for c in all_crops if c.get("name") == crop_type), None)
 
-    # Lấy dữ liệu độ ẩm đất từ telemetry
+    if not crop_info:
+        return 0.0
+
+    current_stage_name = field.get("stage", "development").lower()
+    water_needs_by_stage = crop_info.get("water_needs", {})
+    Kc = water_needs_by_stage.get(current_stage_name, crop_info.get("crop_coefficient", 1.0))
+
     soil_moisture = None
-    if telemetry and "soil_nodes" in telemetry.get("data", {}):
-        for node in telemetry["data"]["soil_nodes"]:
-            if node.get("node_id") == field.get("node_id"):
-                soil_moisture = node.get("sensors", {}).get("soil_moisture")
-                break
-    
-    # Lấy dữ liệu lượng mưa từ telemetry
+    if telemetry:
+        soil_moisture = _aggregate_soil_moisture(telemetry)
+
     rain_intensity = 0.0
     if telemetry and "atmospheric_node" in telemetry.get("data", {}):
-        rain_intensity = telemetry["data"]["atmospheric_node"].get("sensors", {}).get("rain_intensity", 0.0)
+        sensors = telemetry["data"]["atmospheric_node"].get("sensors", {})
+        rain_intensity = sensors.get("rain_intensity", 0.0)
+
+    ETo = 5.0
+    ETc = ETo * Kc
 
     if soil_moisture is not None:
-        # Giả định độ ẩm lý tưởng là 60%
-        ideal_moisture = 60.0
-        moisture_deficit = max(0.0, ideal_moisture - soil_moisture)
-        
-        # Tính toán lượng nước cần dựa trên thiếu hụt độ ẩm và yêu cầu cơ bản của cây
-        # Hệ số điều chỉnh dựa trên diện tích (ví dụ: 1 acre = 4046.86 m^2)
-        area_sqm = field.get("area", 1.0) * 4046.86
-        # Chuyển đổi từ % độ ẩm sang mm nước (giả định 1% độ ẩm = X mm nước)
-        # Đây là một ước tính rất thô, cần mô hình phức tạp hơn cho thực tế
-        water_from_moisture = (moisture_deficit / 100.0) * base_water_requirement * (area_sqm / 1000.0) # Đơn vị lít
-        
-        water_needed = water_from_moisture
+        mad_threshold = 50.0
+        if soil_moisture < mad_threshold:
+            moisture_deficit = mad_threshold - soil_moisture
+            water_from_moisture = (moisture_deficit / 100.0) * ETc * 2
+        else:
+            water_from_moisture = 0.0
+        water_needed_mm = ETc + water_from_moisture
+    else:
+        water_needed_mm = ETc
 
-    # Giảm lượng nước cần nếu có mưa
-    # Giả định 1mm mưa trên 1m^2 = 1 lít nước
-    water_from_rain = rain_intensity * field.get("area", 1.0) * 4046.86 / 1000.0 # Đơn vị lít
-    water_needed = max(0.0, water_needed - water_from_rain)
+    effective_rain = rain_intensity * 0.8
+    water_needed_mm = max(0.0, water_needed_mm - effective_rain)
 
-    # Chuyển đổi sang lít/ngày (ước tính)
-    return round(water_needed, 2)
+    area_sqm = field.get("area", 0) * 4046.86 
+    total_liters = water_needed_mm * area_sqm
+
+    return round(total_liters / 1000.0, 2)
+
+
+def check_warnings(
+        field: Dict[str, Any],
+        telemetry: Optional[Dict[str, Any]]) -> List[str]:
+    """
+    Kiểm tra các điều kiện cảnh báo.
+    """
+    warnings = []
+    crop_type = field.get("crop")
+    all_crops = crop_db.get("crops")
+    crop_info = next((c for c in all_crops if c.get("name") == crop_type), None)
+
+    if not crop_info or not telemetry:
+        return warnings
+
+    crop_warnings = crop_info.get("warnings", {})
+    temp_warning = crop_warnings.get("nhiet_do")
+    humid_warning = crop_warnings.get("do_am")
+
+    air_temperature = None
+    air_humidity = None
+
+    if "atmospheric_node" in telemetry.get("data", {}):
+        sensors = telemetry["data"]["atmospheric_node"].get("sensors", {})
+        air_temperature = sensors.get("air_temperature")
+        air_humidity = sensors.get("air_humidity")
+
+    if temp_warning and air_temperature is not None:
+        if air_temperature < temp_warning.get("min"):
+            warnings.append(
+                f"Nhiệt độ không khí thấp: {air_temperature}°C. "
+                f"Ngưỡng: {temp_warning.get('min')}°C")
+        if air_temperature > temp_warning.get("max"):
+            warnings.append(
+                f"Nhiệt độ không khí cao: {air_temperature}°C. "
+                f"Ngưỡng: {temp_warning.get('max')}°C")
+
+    if humid_warning and air_humidity is not None:
+        if air_humidity < humid_warning.get("min"):
+            warnings.append(
+                f"Độ ẩm không khí thấp: {air_humidity}%. "
+                f"Ngưỡng: {humid_warning.get('min')}%")
+        if air_humidity > humid_warning.get("max"):
+            warnings.append(
+                f"Độ ẩm không khí cao: {air_humidity}%. "
+                f"Ngưỡng: {humid_warning.get('max')}%")
+
+    return warnings

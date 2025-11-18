@@ -1,183 +1,194 @@
-# pages/help_center.py - Enhanced Help Center
 import streamlit as st
 import google.generativeai as genai
 import os
 from database import db
+from datetime import datetime
+
 
 def render_help_center():
-    st.title("🆘 Help Center & Support")
-    st.markdown("Get help with TerraSync IoT and find answers to common questions")
-    
-    # Tabs for different help sections
-    tab1, tab2, tab3, tab4 = st.tabs(["💬 AI Assistant", "📚 Documentation", "🔧 Troubleshooting", "📞 Contact Support"])
-    
-    with tab1:
+    st.title("🆘 Trung tâm Trợ giúp & Hỗ trợ")
+    st.markdown(
+        "Nhận trợ giúp về TerraSync IoT và tìm câu trả lời cho các câu hỏi "
+        "thường gặp")
+
+    tabs_list = ["💬 Trợ lý AI", "📚 Tài liệu", "🔧 Xử lý sự cố", "📞 Liên hệ Hỗ trợ"]
+    tabs = st.tabs(tabs_list)
+
+    with tabs[0]:
         render_ai_assistant()
-    
-    with tab2:
+    with tabs[1]:
         render_documentation()
-    
-    with tab3:
+    with tabs[2]:
         render_troubleshooting()
-    
-    with tab4:
+    with tabs[3]:
         render_contact_support()
 
+
 def render_ai_assistant():
-    """AI Assistant for help"""
-    st.subheader("🤖 TerraSync AI Assistant")
-    st.markdown("Ask me anything about TerraSync IoT, farming, or technical questions!")
-    
-    # Get user context
-    user_fields = db.get_user_fields(st.user.email) if hasattr(st, 'user') and st.user.is_logged_in else []
-    user_hubs = db.get("iot_hubs", {"user_email": st.user.email}) if hasattr(st, 'user') and st.user.is_logged_in else []
-    
-    # Context information
+    st.subheader("🤖 Trợ lý AI TerraSync")
+    st.markdown(
+        "Hỏi tôi bất cứ điều gì về TerraSync IoT, nông nghiệp hoặc các câu "
+        "hỏi kỹ thuật!")
+
+    user_fields = db.get(
+        "fields", {
+            "user_email": st.user.email}) if hasattr(
+        st, 'user') and st.user.is_logged_in else []
+    user_hubs = db.get(
+        "iot_hubs", {
+            "user_email": st.user.email}) if hasattr(
+        st, 'user') and st.user.is_logged_in else []
+
     context_info = f"""
-    User has {len(user_fields)} fields and {len(user_hubs)} IoT hubs.
-    Fields: {[f.get('name', 'Unknown') for f in user_fields[:3]]}
+    Người dùng có {len(user_fields)} vườn và {len(user_hubs)} hub IoT.
+    Các vườn: {[f.get('name', 'Không tên') for f in user_fields[:3]]}
     """
-    
-    # AI Chat Interface
-    api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("gemini", {}).get("api_key", "")
+
+    api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get(
+        "gemini", {}).get("api_key", "")
     if not api_key:
-        st.error("⚠️ Gemini API key not configured. Please check your secrets.toml file.")
+        st.error(
+            "⚠️ Khóa API Gemini chưa được định cấu hình. Vui lòng kiểm tra "
+            "tệp secrets.toml của bạn.")
         return
-    
+
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
     if 'help_messages' not in st.session_state:
         st.session_state.help_messages = []
 
-    # Display chat history
     for message in st.session_state.help_messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Chat input
-    prompt = st.chat_input("Ask a question about TerraSync...")
+    prompt = st.chat_input("Hỏi một câu về TerraSync...")
     if prompt:
-        # Add user message
-        st.session_state.help_messages.append({"role": "user", "content": prompt})
+        st.session_state.help_messages.append(
+            {"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-        
-        # Generate AI response with context
-        try:
-            full_prompt = f"""
-            You are TerraSync AI Assistant, a helpful AI for smart farming and IoT agriculture.
-            
-            User Context: {context_info}
-            
-            User Question: {prompt}
-            
-            Please provide helpful, accurate information about:
-            - TerraSync IoT features and usage
-            - Smart farming techniques
-            - IoT device management
-            - Irrigation optimization
-            - Plant disease diagnosis
-            - Weather monitoring
-            - General agricultural advice
-            
-            Be friendly, informative, and specific to the user's context when possible.
-            """
-            
-            response = model.generate_content(full_prompt)
-            ai_response = response.text
-            
-            st.session_state.help_messages.append({"role": "assistant", "content": ai_response})
-            with st.chat_message("assistant"):
-                st.markdown(ai_response)
-                
-        except Exception as e:
-            error_msg = f"Sorry, I encountered an error: {str(e)}"
-            st.session_state.help_messages.append({"role": "assistant", "content": error_msg})
+
         with st.chat_message("assistant"):
-                st.error(error_msg)
-    
-    # Quick action buttons
-    st.subheader("🚀 Quick Actions")
+            with st.spinner("🤖 AI đang suy nghĩ..."):
+                try:
+                    full_prompt = f"""
+                    Bạn là Trợ lý AI của TerraSync, một AI hữu ích cho nông
+                    nghiệp thông minh và IoT nông nghiệp.
+
+                    Bối cảnh người dùng: {context_info}
+
+                    Câu hỏi của người dùng: {prompt}
+
+                    Vui lòng cung cấp thông tin hữu ích, chính xác về:
+                    - Các tính năng và cách sử dụng TerraSync IoT
+                    - Kỹ thuật canh tác thông minh
+                    - Quản lý thiết bị IoT
+                    - Tối ưu hóa tưới tiêu
+                    - Chẩn đoán bệnh cây trồng
+                    - Theo dõi thời tiết
+                    - Lời khuyên nông nghiệp chung
+
+                    Hãy thân thiện, cung cấp thông tin và cụ thể theo bối cảnh
+                    của người dùng khi có thể.
+                    """
+
+                    response = model.generate_content(full_prompt)
+                    ai_response = response.text
+
+                    st.session_state.help_messages.append(
+                        {"role": "assistant", "content": ai_response})
+                    st.markdown(ai_response)
+
+                except Exception as e:
+                    error_msg = f"Xin lỗi, tôi đã gặp lỗi: {str(e)}"
+                    st.session_state.help_messages.append(
+                        {"role": "assistant", "content": error_msg})
+                    st.error(error_msg)
+
+    st.subheader("🚀 Hành động nhanh")
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
-        if st.button("📖 How to add a field?"):
-            st.session_state.help_messages.append({"role": "user", "content": "How do I add a new field to TerraSync?"})
-            st.rerun()
-    
-    with col2:
-        if st.button("🔧 IoT setup help"):
-            st.session_state.help_messages.append({"role": "user", "content": "How do I set up IoT devices?"})
-            st.rerun()
-    
-    with col3:
-        if st.button("💧 Irrigation tips"):
-            st.session_state.help_messages.append({"role": "user", "content": "What are some irrigation optimization tips?"})
+        if st.button("📖 Cách thêm vườn?"):
+            st.session_state.help_messages.append(
+                {"role": "user", "content": "Làm cách nào để thêm một vườn "
+                 "mới vào TerraSync?"})
             st.rerun()
 
+    with col2:
+        if st.button("🔧 Trợ giúp cài đặt IoT"):
+            st.session_state.help_messages.append(
+                {"role": "user", "content": "Làm cách nào để thiết lập các "
+                 "thiết bị IoT?"})
+            st.rerun()
+
+    with col3:
+        if st.button("💧 Mẹo tưới tiêu"):
+            st.session_state.help_messages.append(
+                {"role": "user", "content": "Một số mẹo tối ưu hóa tưới "
+                 "tiêu là gì?"})
+            st.rerun()
+
+
 def render_documentation():
-    """Documentation and guides"""
-    st.subheader("📚 Documentation & Guides")
-    
-    # Getting Started
-    with st.expander("🚀 Getting Started", expanded=True):
+    st.subheader("📚 Tài liệu & Hướng dẫn")
+
+    with st.expander("🚀 Bắt đầu", expanded=True):
         st.markdown("""
-        ### Welcome to TerraSync IoT!
-        
-        **Step 1: Add Your Fields**
-        - Go to "My Fields" page
-        - Click "Add new field" 
-        - Choose from AI detection, manual coordinates, or map drawing
-        
-        **Step 2: Set Up IoT Devices**
-        - Go to "IoT Management" page
-        - Register your IoT hub
-        - Connect sensors to monitor your fields
-        
-        **Step 3: Generate Irrigation Schedule**
-        - Go to "My Schedule" page
-        - Select your field
-        - Generate optimized irrigation schedule
-        
-        **Step 4: Monitor with AI**
-        - Use "AI Detection" for plant disease diagnosis
-        - Check "Satellite View" for field monitoring
-        - Chat with CropNet AI for personalized advice
+        ### Chào mừng đến với TerraSync IoT!
+
+        **Bước 1: Thêm vườn của bạn**
+        - Tới trang "Vườn của tôi"
+        - Nhấn "Thêm vườn mới"
+        - Chọn từ phát hiện AI, tọa độ thủ công hoặc vẽ trên bản đồ
+
+        **Bước 2: Thiết lập thiết bị IoT**
+        - Tới trang "Quản lý IoT"
+        - Đăng ký hub IoT của bạn
+        - Kết nối cảm biến để theo dõi vườn của bạn
+
+        **Bước 3: Tạo lịch tưới**
+        - Tới trang "Lịch trình của tôi"
+        - Chọn vườn của bạn
+        - Tạo lịch tưới được tối ưu hóa
+
+        **Bước 4: Theo dõi bằng AI**
+        - Sử dụng "Phát hiện AI" để chẩn đoán bệnh cây trồng
+        - Kiểm tra "Chế độ xem vệ tinh" để theo dõi vườn
+        - Trò chuyện với CropNet AI để nhận lời khuyên cá nhân hóa
         """)
-    
-    # Feature Guides
-    with st.expander("🔧 Feature Guides"):
+
+    with st.expander("🔧 Hướng dẫn tính năng"):
         st.markdown("""
-        ### AI Field Detection
-        - Upload satellite or aerial images
-        - AI automatically detects field boundaries
-        - Suggests crop types and calculates area
-        
-        ### IoT Management
-        - Connect Raspberry Pi 4 as hub
-        - Monitor soil moisture, temperature, humidity
-        - RF 433MHz communication up to 1km range
-        
-        ### Irrigation Optimization
-        - Weather-based scheduling
-        - Crop-specific water requirements
-        - Efficiency monitoring and recommendations
-        
-        ### Plant Disease Diagnosis
-        - Upload leaf images for AI analysis
-        - Get disease identification and treatment suggestions
-        - Prevention tips and monitoring advice
+        ### Phát hiện vườn bằng AI
+        - Tải lên hình ảnh vệ tinh hoặc từ trên không
+        - AI tự động phát hiện ranh giới vườn
+        - Gợi ý loại cây trồng và tính toán diện tích
+
+        ### Quản lý IoT
+        - Kết nối Raspberry Pi 4 làm hub
+        - Theo dõi độ ẩm đất, nhiệt độ, độ ẩm không khí
+        - Giao tiếp RF 433MHz với phạm vi lên đến 1km
+
+        ### Tối ưu hóa tưới tiêu
+        - Lập lịch dựa trên thời tiết
+        - Yêu cầu nước cụ thể theo cây trồng
+        - Theo dõi và đề xuất hiệu quả
+
+        ### Chẩn đoán bệnh cây trồng
+        - Tải lên hình ảnh lá để AI phân tích
+        - Nhận dạng bệnh và gợi ý điều trị
+        - Mẹo phòng ngừa và theo dõi
         """)
-    
-    # API Documentation
-    with st.expander("🔌 API Documentation"):
+
+    with st.expander("🔌 Tài liệu API"):
         st.markdown("""
-        ### IoT Data Ingestion
+        ### Ghi nhận dữ liệu IoT
         ```
         POST /api/v1/data/ingest
         Content-Type: application/json
-        
+
         {
           "hub_id": "your-hub-id",
           "timestamp": "2025-01-15T10:00:00Z",
@@ -188,159 +199,166 @@ def render_documentation():
           }
         }
         ```
-        
-        ### Weather API
-        - Open-Meteo integration for weather data
-        - 7-day forecast with precipitation, temperature, wind
-        - Risk assessment and irrigation recommendations
-        
-        ### Satellite Data
-        - OpenET (NASA) for evapotranspiration
-        - NDVI analysis for vegetation health
-        - Cloud removal and image enhancement
+
+        ### API Thời tiết
+        - Tích hợp Open-Meteo cho dữ liệu thời tiết
+        - Dự báo 7 ngày với lượng mưa, nhiệt độ, gió
+        - Đánh giá rủi ro và khuyến nghị tưới tiêu
+
+        ### Dữ liệu vệ tinh
+        - OpenET (NASA) cho thoát hơi nước
+        - Phân tích NDVI cho sức khỏe thực vật
+        - Loại bỏ mây và tăng cường hình ảnh
         """)
 
+
 def render_troubleshooting():
-    """Troubleshooting guide"""
-    st.subheader("🔧 Troubleshooting Guide")
-    
-    # Common Issues
-    st.markdown("### Common Issues & Solutions")
-    
-    # Issue categories
+    st.subheader("🔧 Hướng dẫn xử lý sự cố")
+
+    st.markdown("### Các vấn đề thường gặp & Giải pháp")
+
     issue_categories = {
-        "🔐 Authentication": [
-            "**Problem**: Cannot login with Google",
-            "**Solution**: Check your secrets.toml file has correct Google OAuth credentials",
-            "**Problem**: User data not saving",
-            "**Solution**: Ensure database file has write permissions"
+        "🔐 Xác thực": [
+            "**Vấn đề**: Không thể đăng nhập bằng Google",
+            "**Giải pháp**: Kiểm tra tệp secrets.toml của bạn có thông tin "
+            "xác thực Google OAuth chính xác không",
+            "**Vấn đề**: Dữ liệu người dùng không lưu",
+            "**Giải pháp**: Đảm bảo tệp cơ sở dữ liệu có quyền ghi"
         ],
-        "📡 IoT Connection": [
-            "**Problem**: IoT hub not connecting",
-            "**Solution**: Check network connection and hub IP address",
-            "**Problem**: Sensors not responding",
-            "**Solution**: Verify RF communication and battery levels"
+        "📡 Kết nối IoT": [
+            "**Vấn đề**: Hub IoT không kết nối",
+            "**Giải pháp**: Kiểm tra kết nối mạng và địa chỉ IP của hub",
+            "**Vấn đề**: Cảm biến không phản hồi",
+            "**Giải pháp**: Xác minh giao tiếp RF và mức pin"
         ],
-        "🗺️ Field Management": [
-            "**Problem**: Cannot add fields",
-            "**Solution**: Ensure you're logged in and have valid coordinates",
-            "**Problem**: AI detection not working",
-            "**Solution**: Check image quality and file format (JPG/PNG)"
+        "🗺️ Quản lý vườn": [
+            "**Vấn đề**: Không thể thêm vườn",
+            "**Giải pháp**: Đảm bảo bạn đã đăng nhập và có tọa độ hợp lệ",
+            "**Vấn đề**: Phát hiện AI không hoạt động",
+            "**Giải pháp**: Kiểm tra chất lượng hình ảnh và định dạng tệp "
+            "(JPG/PNG)"
         ],
-        "💧 Irrigation": [
-            "**Problem**: Schedule not generating",
-            "**Solution**: Verify field data and weather API connection",
-            "**Problem**: Inaccurate water calculations",
-            "**Solution**: Check crop coefficient and irrigation efficiency settings"
+        "💧 Tưới tiêu": [
+            "**Vấn đề**: Lịch trình không tạo được",
+            "**Giải pháp**: Xác minh dữ liệu vườn và kết nối API thời tiết",
+            "**Vấn đề**: Tính toán nước không chính xác",
+            "**Giải pháp**: Kiểm tra cài đặt hệ số cây trồng và hiệu quả tưới"
         ]
     }
-    
+
     for category, issues in issue_categories.items():
         with st.expander(category):
             for issue in issues:
                 st.markdown(issue)
-    
-    # System Status
-    st.subheader("🔍 System Status Check")
-    
-    if st.button("🔍 Run System Check"):
-        with st.spinner("Checking system status..."):
-            # Check database
+
+    st.subheader("🔍 Kiểm tra trạng thái hệ thống")
+
+    if st.button("🔍 Chạy kiểm tra hệ thống"):
+        with st.spinner("Đang kiểm tra trạng thái hệ thống..."):
             try:
                 db.tables()
-                st.success("✅ Database: Connected")
+                st.success("✅ Cơ sở dữ liệu: Đã kết nối")
             except Exception as e:
-                st.error(f"❌ Database: Error - {str(e)}")
-            
-            # Check API keys
+                st.error(f"❌ Cơ sở dữ liệu: Lỗi - {str(e)}")
+
             api_key = st.secrets.get("gemini", {}).get("api_key", "")
             if api_key:
-                st.success("✅ Gemini API: Configured")
+                st.success("✅ API Gemini: Đã định cấu hình")
             else:
-                st.warning("⚠️ Gemini API: Not configured")
-            
-            # Check user data
+                st.warning("⚠️ API Gemini: Chưa được định cấu hình")
+
             if hasattr(st, 'user') and st.user.is_logged_in:
-                user_fields = db.get_user_fields(st.user.email)
-                st.success(f"✅ User Data: {len(user_fields)} fields found")
+                user_fields = db.get("fields", {"user_email": st.user.email})
+                st.success(
+                    f"✅ Dữ liệu người dùng: Tìm thấy {len(user_fields)} vườn")
             else:
-                st.warning("⚠️ User Data: Not logged in")
-    
-    # Logs and Debug
-    st.subheader("📋 Debug Information")
-    
-    if st.button("📋 Show Debug Info"):
+                st.warning("⚠️ Dữ liệu người dùng: Chưa đăng nhập")
+
+    st.subheader("📋 Thông tin gỡ lỗi")
+
+    if st.button("📋 Hiển thị thông tin gỡ lỗi"):
         debug_info = {
-            "User Email": st.user.email if hasattr(st, 'user') and st.user.is_logged_in else "Not logged in",
-            "Database Tables": db.tables(),
-            "Session State Keys": list(st.session_state.keys()),
-            "Streamlit Version": st.__version__
-        }
-        
+            "Email người dùng": st.user.email if hasattr(
+                st,
+                'user') and st.user.is_logged_in else "Chưa đăng nhập",
+            "Bảng cơ sở dữ liệu": db.tables(),
+            "Khóa trạng thái phiên": list(
+                st.session_state.keys()),
+            "Phiên bản Streamlit": st.__version__}
+
         for key, value in debug_info.items():
             st.write(f"**{key}**: {value}")
 
+
 def render_contact_support():
-    """Contact support"""
-    st.subheader("📞 Contact Support")
-    
-    # Support options
+    st.subheader("📞 Liên hệ Hỗ trợ")
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("""
-        ### 📧 Email Support
-        **General Support**: support@terrasync.io
-        **Technical Issues**: tech@terrasync.io
-        **Business Inquiries**: business@terrasync.io
-        
-        ### 📱 Phone Support
-        **Hotline**: +84 123 456 789
-        **Hours**: Mon-Fri 8AM-6PM (GMT+7)
+        ### 📧 Hỗ trợ qua Email
+        **Hỗ trợ chung**: support@terrasync.io
+        **Vấn đề kỹ thuật**: tech@terrasync.io
+        **Yêu cầu kinh doanh**: business@terrasync.io
+
+        ### 📱 Hỗ trợ qua điện thoại
+        **Hotline**: +84 0978 589 220
+        **Giờ làm việc**: Thứ Hai - Thứ Sáu 8AM-6PM (GMT+7)
         """)
-    
+
     with col2:
         st.markdown("""
-        ### 💬 Live Chat
-        Available during business hours
-        Average response time: 5 minutes
-        
-        ### 🐛 Bug Reports
-        **GitHub Issues**: [github.com/terrasync/issues](https://github.com/terrasync/issues)
-        **Priority**: Critical bugs get 24h response
+        ### 💬 Trò chuyện trực tiếp
+        Có sẵn trong giờ làm việc
+        Thời gian phản hồi trung bình: 5 phút
+
+        ### 🐛 Báo cáo lỗi
+        **GitHub Issues**:
+        [github.com/terrasync/issues](https://github.com/terrasync/issues)
+        **Ưu tiên**: Lỗi nghiêm trọng được phản hồi trong 24 giờ
         """)
-    
-    # Contact form
-    st.subheader("📝 Send Message")
-    
+
+    st.subheader("📝 Gửi tin nhắn")
+
     with st.form("contact_form"):
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            name = st.text_input("Your Name", value=st.user.name if hasattr(st, 'user') and st.user.is_logged_in else "")
-            email = st.text_input("Email", value=st.user.email if hasattr(st, 'user') and st.user.is_logged_in else "")
-        
+            name = st.text_input(
+                "Tên của bạn",
+                value=st.user.name if hasattr(
+                    st,
+                    'user') and st.user.is_logged_in else "")
+            email = st.text_input(
+                "Email",
+                value=st.user.email if hasattr(
+                    st,
+                    'user') and st.user.is_logged_in else "")
+
         with col2:
-            issue_type = st.selectbox("Issue Type", [
-                "General Question",
-                "Technical Problem", 
-                "Feature Request",
-                "Bug Report",
-                "Account Issue"
+            issue_type = st.selectbox("Loại vấn đề", [
+                "Câu hỏi chung",
+                "Vấn đề kỹ thuật",
+                "Yêu cầu tính năng",
+                "Báo cáo lỗi",
+                "Vấn đề tài khoản"
             ])
-            priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
-        
-        subject = st.text_input("Subject")
-        message = st.text_area("Message", height=150)
-        
-        if st.form_submit_button("📤 Send Message", type="primary"):
+            priority = st.selectbox(
+                "Mức độ ưu tiên", [
+                    "Thấp", "Trung bình", "Cao", "Nghiêm trọng"])
+
+        subject = st.text_input("Chủ đề")
+        message = st.text_area("Tin nhắn", height=150)
+
+        if st.form_submit_button("📤 Gửi tin nhắn", type="primary"):
             if not message:
-                st.error("Please enter a message")
+                st.error("Vui lòng nhập tin nhắn")
             else:
-                # In a real app, this would send the message
-                st.success("✅ Message sent successfully! We'll get back to you within 24 hours.")
-                
-                # Log the message (in real app, save to database)
+                st.success(
+                    "✅ Gửi tin nhắn thành công! Chúng tôi sẽ liên hệ lại với "
+                    "bạn trong vòng 24 giờ.")
+
                 contact_data = {
                     "name": name,
                     "email": email,
@@ -348,39 +366,33 @@ def render_contact_support():
                     "priority": priority,
                     "subject": subject,
                     "message": message,
-                    "user_email": st.user.email if hasattr(st, 'user') and st.user.is_logged_in else None,
-                    "timestamp": st.session_state.get("timestamp", "unknown")
-                }
-                
-                # Save to database
+                    "user_email": st.user.email if hasattr(
+                        st,
+                        'user') and st.user.is_logged_in else None,
+                    "timestamp": datetime.now().isoformat()}
+
                 db.add("support_messages", contact_data)
-    
-    # FAQ
-    st.subheader("❓ Frequently Asked Questions")
-    
+
+    st.subheader("❓ Câu hỏi thường gặp")
+
     faqs = [
-        {
-            "Q": "How do I connect my IoT devices?",
-            "A": "Go to IoT Management → Add New Hub → Enter hub details and connect sensors"
-        },
-        {
-            "Q": "Can I use TerraSync without IoT devices?",
-            "A": "Yes! You can use manual data entry and weather-based scheduling"
-        },
-        {
-            "Q": "How accurate is the AI disease detection?",
-            "A": "Our AI achieves 85-90% accuracy on common plant diseases with clear images"
-        },
-        {
-            "Q": "What crops are supported?",
-            "A": "Rice, Corn, Wheat, Soybean, Tomato, Potato, Cabbage, and custom crops"
-        },
-        {
-            "Q": "How much water can I save?",
-            "A": "Users typically save 20-40% water through optimized irrigation scheduling"
-        }
+        {"Q": "Làm cách nào để kết nối các thiết bị IoT của tôi?",
+         "A": "Tới Quản lý IoT → Thêm Hub mới → Nhập chi tiết hub và "
+         "kết nối cảm biến"},
+        {"Q": "Tôi có thể sử dụng TerraSync mà không cần thiết bị IoT không?",
+         "A": "Có! Bạn có thể sử dụng nhập dữ liệu thủ công và lập lịch "
+         "dựa trên thời tiết"},
+        {"Q": "Phát hiện bệnh bằng AI có chính xác không?",
+         "A": "AI của chúng tôi đạt độ chính xác 85-90% đối với các bệnh "
+         "cây trồng phổ biến với hình ảnh rõ nét"},
+        {"Q": "Những loại cây trồng nào được hỗ trợ?",
+         "A": "Lúa, Ngô, Lúa mì, Đậu nành, Cà chua, Khoai tây, Bắp cải và "
+         "các loại cây trồng tùy chỉnh"},
+        {"Q": "Tôi có thể tiết kiệm được bao nhiêu nước?",
+         "A": "Người dùng thường tiết kiệm 20-40% nước thông qua lịch tưới "
+         "được tối ưu hóa"}
     ]
-    
+
     for faq in faqs:
         with st.expander(faq["Q"]):
             st.write(faq["A"])

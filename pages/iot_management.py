@@ -1,18 +1,11 @@
-"""
-TerraSync IoT Management Page
-Quản lý thiết bị IoT, hub và cảm biến
-"""
-
 import streamlit as st
 import json
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional
-# from api_placeholders import terrasync_apis # <- Đã xóa mock
-from database import db # <- Vẫn giữ lại cho user/fields/settings
-from iot_api_client import get_iot_client, test_iot_connection # <- Import client thật
+from database import db
+from iot_api_client import get_iot_client, test_iot_connection
 
-# Import các thư viện plotting nếu chưa có
 try:
     import pandas as pd
     import plotly.graph_objects as go
@@ -21,12 +14,8 @@ except ImportError:
     st.error("Cần cài đặt: pip install pandas plotly")
     st.stop()
 
-
-@st.cache_data(ttl=60) # Cache trong 60 giây
+@st.cache_data(ttl=60)
 def get_user_hub_data(user_email: str) -> List[Dict[str, Any]]:
-    """
-    Lấy và lọc tất cả dữ liệu hub/status/sensor cho user hiện tại từ API.
-    """
     try:
         client = get_iot_client()
         all_hub_statuses = client.get_all_hub_statuses()
@@ -34,7 +23,6 @@ def get_user_hub_data(user_email: str) -> List[Dict[str, Any]]:
         if not all_hub_statuses:
             return []
         
-        # Lọc các hub thuộc về user này
         user_hubs = []
         for hub_status in all_hub_statuses:
             hub = hub_status.get('hub')
@@ -46,42 +34,32 @@ def get_user_hub_data(user_email: str) -> List[Dict[str, Any]]:
         st.error(f"Lỗi khi lấy dữ liệu hub: {e}")
         return []
 
-
 def render_iot_management():
-    """Trang quản lý thiết bị IoT"""
-    st.title("🔧 IoT Device Management")
+    st.title("🔧 Quản lý Thiết bị IoT")
     st.markdown("Quản lý hub chính, cảm biến và kết nối RF 433MHz")
     
-    # Check IoT API connection
     if not test_iot_connection():
         st.error("❌ Không thể kết nối đến IoT API. Vui lòng kiểm tra server.")
         st.info(f"💡 Đảm bảo API server đang chạy tại: `{get_iot_client().base_url}`")
         return
     
-    # Tabs cho các chức năng khác nhau
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📡 Hub Management", "🌡️ Sensors", "📊 Real-time Data", "🚨 Alerts", "⚙️ Settings"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📡 Quản lý Hub", "🌡️ Cảm biến", "📊 Dữ liệu thời gian thực", "🚨 Cảnh báo", "⚙️ Cài đặt"])
     
     with tab1:
         render_hub_management()
-    
     with tab2:
         render_sensor_management()
-    
     with tab3:
         render_realtime_data()
-    
     with tab4:
         render_alerts()
-    
     with tab5:
         render_iot_settings()
 
-
-@st.dialog("Edit Hub Configuration", width="medium")
+@st.dialog("Chỉnh sửa cấu hình Hub", width="medium")
 def edit_hub_dialog(hub_id: str):
-    st.subheader(f"Edit Hub (ID: {hub_id})")
+    st.subheader(f"Chỉnh sửa Hub (ID: {hub_id})")
     
-    # Load current data from DB for editing (sync with API data)
     try:
         user_email = st.user.email
         hub_db = db.get("iot_hubs", {"hub_id": hub_id, "user_email": user_email})
@@ -89,33 +67,32 @@ def edit_hub_dialog(hub_id: str):
     except Exception:
         current_hub = {}
     
-    hub_name_edit = st.text_input("Hub Name", value=current_hub.get('name', ''))
-    description_edit = st.text_area("Description", value=current_hub.get('description', ''), height=100)
+    hub_name_edit = st.text_input("Tên Hub", value=current_hub.get('name', ''))
+    description_edit = st.text_area("Mô tả", value=current_hub.get('description', ''), height=100)
     
-    # Field selection with safe handling
     try:
         user_fields = db.get("fields", {"user_email": st.user.email})
         field_options = {field['id']: field['name'] for field in user_fields if 'id' in field and 'name' in field}
         if not field_options:
-            st.warning("No fields available. Create a field first.")
+            st.warning("Không có vườn nào. Vui lòng tạo vườn trước.")
             return
     except Exception:
         field_options = {}
-        st.error("Error loading fields.")
+        st.error("Lỗi khi tải danh sách vườn.")
         return
     
     current_field_id = current_hub.get('field_id')
     available_field_ids = list(field_options.keys())
     if current_field_id and current_field_id in available_field_ids:
         selected_field_id_edit = st.selectbox(
-            "Assign to Field", 
+            "Gán cho vườn", 
             options=available_field_ids, 
             format_func=lambda x: field_options[x],
             index=available_field_ids.index(current_field_id)
         )
     else:
         selected_field_id_edit = st.selectbox(
-            "Assign to Field", 
+            "Gán cho vườn", 
             options=available_field_ids, 
             format_func=lambda x: field_options[x],
             index=0
@@ -124,10 +101,10 @@ def edit_hub_dialog(hub_id: str):
     location = current_hub.get('location', {})
     if not isinstance(location, dict):
         location = {}
-    location_lat = st.number_input("Location Latitude", value=location.get('lat', 0.0))
-    location_lon = st.number_input("Location Longitude", value=location.get('lon', 0.0))
+    location_lat = st.number_input("Vĩ độ", value=location.get('lat', 0.0))
+    location_lon = st.number_input("Kinh độ", value=location.get('lon', 0.0))
     
-    if st.button("💾 Update Hub", type="primary"):
+    if st.button("💾 Cập nhật Hub", type="primary"):
         updated_data = {
             "id": current_hub.get('id'),
             "hub_id": hub_id,
@@ -142,115 +119,103 @@ def edit_hub_dialog(hub_id: str):
             "created_at": current_hub.get('created_at')
         }
         
-        # Update via API if possible, fallback to DB
         try:
             client = get_iot_client()
             api_success = False
             if hasattr(client, 'update_hub'):
                 api_success = client.update_hub(updated_data)
             if not api_success:
-                # Fallback to DB
                 if 'id' in current_hub:
                     db.update("iot_hubs", {"hub_id": hub_id, "user_email": updated_data['user_email']}, updated_data)
                 else:
                     db.add("iot_hubs", updated_data)
-            st.success("✅ Hub updated successfully!")
+            st.success("✅ Cập nhật hub thành công!")
         except Exception as e:
-            st.error(f"Error updating hub: {e}")
+            st.error(f"Lỗi khi cập nhật hub: {e}")
         
         st.cache_data.clear()
         st.rerun()
     
-    if st.button("❌ Cancel"):
+    if st.button("❌ Hủy"):
         st.rerun()
 
-
-@st.dialog("Confirm Delete Hub", width="small")
+@st.dialog("Xác nhận xóa Hub", width="small")
 def delete_hub_dialog(hub_id: str, hub_name: str):
-    st.warning(f"Are you sure you want to delete hub '{hub_name}' (ID: {hub_id})?")
-    st.info("This action cannot be undone and will remove all associated data.")
+    st.warning(f"Bạn có chắc chắn muốn xóa hub '{hub_name}' (ID: {hub_id}) không?")
+    st.info("Hành động này không thể hoàn tác và sẽ xóa tất cả dữ liệu liên quan.")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🗑️ Yes, Delete", type="primary", use_container_width=True):
-            # Delete via API if possible, fallback to DB
+        if st.button("🗑️ Có, xóa", type="primary", use_container_width=True):
             try:
                 client = get_iot_client()
                 api_success = False
                 if hasattr(client, 'delete_hub'):
                     api_success = client.delete_hub(hub_id)
                 if not api_success:
-                    # Fallback to DB
                     db.delete("iot_hubs", {"hub_id": hub_id, "user_email": st.user.email})
-                st.success("✅ Hub deleted successfully!")
+                st.success("✅ Xóa hub thành công!")
             except Exception as e:
-                st.error(f"Error deleting hub: {e}")
+                st.error(f"Lỗi khi xóa hub: {e}")
             
             st.cache_data.clear()
             st.rerun()
     
     with col2:
-        if st.button("❌ No, Cancel", use_container_width=True):
+        if st.button("❌ Không, hủy", use_container_width=True):
             st.rerun()
 
-
 def render_hub_management():
-    """Quản lý IoT Hub"""
-    st.subheader("📡 IoT Hub Management")
+    st.subheader("📡 Quản lý Hub IoT")
     
-    # Thêm hub mới
-    with st.expander("➕ Add New Hub", expanded=False):
-        hub_id = st.text_input("Hub ID", placeholder="Enter the ID from your Hub device")
-        hub_name = st.text_input("Hub Name (Optional)", placeholder="e.g., Main Farm Hub")
+    with st.expander("➕ Thêm Hub mới", expanded=False):
+        hub_id = st.text_input("ID Hub", placeholder="Nhập ID từ thiết bị Hub của bạn")
+        hub_name = st.text_input("Tên Hub (Tùy chọn)", placeholder="ví dụ: Hub chính")
 
-        # Lấy danh sách vườn của user (từ DB local của Streamlit)
         try:
             user_fields = db.get("fields", {"user_email": st.user.email})
             if not user_fields:
-                st.warning("You need to create a field first before adding a hub.")
+                st.warning("Bạn cần tạo một vườn trước khi thêm hub.")
                 return
             field_options = {field['id']: field['name'] for field in user_fields if 'id' in field and 'name' in field}
-            selected_field_id = st.selectbox("Choose a field to assign this hub to", options=list(field_options.keys()), format_func=lambda x: field_options[x])
+            selected_field_id = st.selectbox("Chọn một vườn để gán hub này", options=list(field_options.keys()), format_func=lambda x: field_options[x])
         except Exception as e:
-            st.error(f"Error loading fields: {e}")
+            st.error(f"Lỗi khi tải danh sách vườn: {e}")
             return
         
-        if st.button("🔗 Register Hub", type="primary"):
+        if st.button("🔗 Đăng ký Hub", type="primary"):
             if not hub_id:
-                st.error("Hub ID is required.")
+                st.error("Yêu cầu ID Hub.")
             elif not selected_field_id:
-                st.error("You must select a field.")
+                st.error("Bạn phải chọn một vườn.")
             else:
                 hub_data = {
                     "hub_id": hub_id,
                     "user_email": st.user.email,
                     "field_id": selected_field_id,
                     "name": hub_name if hub_name else f"Hub {hub_id[:8]}",
-                    "location": None, # Thêm các trường Pydantic yêu cầu
+                    "location": None,
                     "description": None
                 }
                 
-                # Register with IoT API
                 try:
                     client = get_iot_client()
                     success = client.register_hub(hub_data) 
                     
                     if success:
-                        st.success(f"✅ Hub '{hub_id}' registered successfully!")
-                        st.cache_data.clear() # Xóa cache để tải lại danh sách
+                        st.success(f"✅ Đăng ký hub '{hub_id}' thành công!")
+                        st.cache_data.clear()
                         st.rerun()
                     else:
-                        st.error(f"❌ Failed to register hub '{hub_id}'. It might already exist, or there was an API error.")
+                        st.error(f"❌ Không thể đăng ký hub '{hub_id}'. Hub có thể đã tồn tại hoặc có lỗi API.")
                 except Exception as e:
-                    st.error(f"API Error: {e}")
+                    st.error(f"Lỗi API: {e}")
     
-
-    # Danh sách hubs (Lấy từ API thay vì DB local)
-    st.subheader("📋 Registered Hubs")
+    st.subheader("📋 Các Hub đã đăng ký")
     user_hubs_data = get_user_hub_data(st.user.email)
     
     if not user_hubs_data:
-        st.info("No hubs registered yet. Add your first hub above.")
+        st.info("Chưa có hub nào được đăng ký. Thêm hub đầu tiên của bạn ở trên.")
         return
     
     for hub_status in user_hubs_data:
@@ -262,56 +227,47 @@ def render_hub_management():
             col1, col2, col3 = st.columns([3, 2, 1])
             
             with col1:
-                st.markdown(f"**{hub.get('name', 'Unnamed Hub')}**")
+                st.markdown(f"**{hub.get('name', 'Hub không tên')}**")
                 field_name = "N/A"
                 field_id = hub.get('field_id')
                 if field_id:
                     try:
-                        # Vẫn lấy tên field từ DB local
                         field_list = db.get("fields", {"id": field_id})
                         if field_list:
                             field_name = field_list[0].get("name", "N/A")
                     except Exception:
-                        field_name = "Error loading field"
-                st.caption(f"📍 Field: {field_name}")
-                st.caption(f"🆔 Hub ID: `{hub.get('hub_id', 'N/A')}`")
+                        field_name = "Lỗi tải vườn"
+                st.caption(f"📍 Vườn: {field_name}")
+                st.caption(f"🆔 ID Hub: `{hub.get('hub_id', 'N/A')}`")
             
             with col2:
-                # API trả về 'last_data_time' đã tính toán
                 last_data_time_str = hub_status.get("last_data_time")
-                status = "⚪ Unknown"
+                status = "⚪ Không xác định"
                 if last_data_time_str:
                     try:
                         last_seen = datetime.fromisoformat(last_data_time_str.replace('Z', '+00:00'))
                         
-                        if (datetime.now(timezone.utc) - last_seen).total_seconds() < 960: # 16 phút
+                        if (datetime.now(timezone.utc) - last_seen).total_seconds() < 960:
                              status = "🟢 Online"
                         else:
                              status = "🔴 Offline"
                     except (ValueError, TypeError):
-                        status = "⚪ Invalid time"
+                        status = "⚪ Thời gian không hợp lệ"
 
-                st.markdown(f"Status: {status}")
-                st.caption(f"Last data: {last_data_time_str[:19] if last_data_time_str else 'N/A'}")
+                st.markdown(f"Trạng thái: {status}")
+                st.caption(f"Dữ liệu cuối: {last_data_time_str[:19] if last_data_time_str else 'N/A'}")
 
             
             with col3:
-                if st.button("⚙️", key=f"config_{hub['hub_id']}", help="Configure"):
+                if st.button("⚙️", key=f"config_{hub['hub_id']}", help="Cấu hình"):
                     edit_hub_dialog(hub['hub_id'])
                 
-                # Nút xóa với dialog confirm
-                if st.button("🗑️", key=f"delete_{hub['hub_id']}", help="Delete Hub"):
-                    delete_hub_dialog(hub['hub_id'], hub.get('name', 'Unnamed Hub'))
-
+                if st.button("🗑️", key=f"delete_{hub['hub_id']}", help="Xóa Hub"):
+                    delete_hub_dialog(hub['hub_id'], hub.get('name', 'Hub không tên'))
 
 def render_sensor_management():
-    """
-    Quản lý cảm biến (ĐÃ SỬA)
-    Lấy danh sách sensor động từ gói telemetry mới nhất.
-    """
-    st.subheader("🌡️ Sensor Management")
+    st.subheader("🌡️ Quản lý cảm biến")
     
-    # 1. Chọn hub (Không thay đổi)
     try:
         user_hubs_data = get_user_hub_data(st.user.email)
     except Exception as e:
@@ -319,7 +275,7 @@ def render_sensor_management():
         return
         
     if not user_hubs_data:
-        st.warning("Please register a hub first.")
+        st.warning("Vui lòng đăng ký hub trước.")
         return
     
     hub_options = {}
@@ -332,24 +288,22 @@ def render_sensor_management():
                 hub_options[hub_id] = hub_name
     
     if not hub_options:
-        st.warning("No valid hubs found.")
+        st.warning("Không tìm thấy hub hợp lệ.")
         return
     
     selected_hub_id = st.selectbox(
-        "Select Hub",
+        "Chọn Hub",
         options=list(hub_options.keys()),
         format_func=lambda x: hub_options[x]
     )
     
     if selected_hub_id:
-        # 2. Lấy thông tin hub đã chọn
         hub_info = next((h for h in user_hubs_data if h.get('hub', {}).get('hub_id') == selected_hub_id), None)
         
         if not hub_info:
-            st.error("Could not retrieve hub data.")
+            st.error("Không thể lấy dữ liệu hub.")
             return
 
-        # 3. Phân tích `latest_telemetry` để tạo danh sách sensor
         latest_telemetry = hub_info.get('latest_telemetry')
         sensors_from_telemetry = []
         last_seen_time = "N/A"
@@ -357,90 +311,79 @@ def render_sensor_management():
         if latest_telemetry and latest_telemetry.get('data'):
             telemetry_data = latest_telemetry.get('data')
             
-            # Lấy thời gian "last_seen" từ chính gói telemetry
             raw_time_str = latest_telemetry.get('timestamp')
             if raw_time_str:
                 try:
                     last_seen_dt = datetime.fromisoformat(raw_time_str.replace('Z', '+00:00'))
                     last_seen_time = last_seen_dt.strftime("%Y-%m-%d %H:%M:%S")
                 except ValueError:
-                    last_seen_time = raw_time_str[:19] # Cắt ngắn nếu không parse được
+                    last_seen_time = raw_time_str[:19]
             
-            # 3.1. Thêm node khí quyển (nếu có)
             atm_node = telemetry_data.get('atmospheric_node')
             if isinstance(atm_node, dict):
-                atm_node['sensor_type'] = 'atmospheric' # Tự gán type
+                atm_node['sensor_type'] = 'atmospheric'
                 sensors_from_telemetry.append(atm_node)
                 
-            # 3.2. Thêm các node đất (nếu có)
             soil_nodes = telemetry_data.get('soil_nodes', [])
             if isinstance(soil_nodes, list):
                 for node in soil_nodes:
                     if isinstance(node, dict):
-                        node['sensor_type'] = 'soil' # Tự gán type
+                        node['sensor_type'] = 'soil'
                         sensors_from_telemetry.append(node)
         
-        # 4. Hiển thị Metrics (dựa trên danh sách sensor vừa phân tích)
         total_sensors = len(sensors_from_telemetry)
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total Active Sensors", total_sensors)
+            st.metric("Tổng số cảm biến đang hoạt động", total_sensors)
         with col2:
-            st.metric("Online", total_sensors) # Nếu nó có trong telemetry, nó đang online
+            st.metric("Online", total_sensors)
         with col3:
-            st.metric("Offline", 0) # Không thể biết sensor offline từ 1 gói telemetry
+            st.metric("Offline", 0)
 
-        # 5. Hiển thị danh sách chi tiết sensor
-        st.subheader("📋 Sensor Details (from latest report)")
+        st.subheader("📋 Chi tiết cảm biến (từ báo cáo mới nhất)")
         if not sensors_from_telemetry:
-            st.info("No sensor data has been reported from this hub yet.")
+            st.info("Chưa có dữ liệu cảm biến nào được báo cáo từ hub này.")
             return
 
         for sensor in sensors_from_telemetry:
             with st.container(border=True):
-                # Chỉ 3 cột vì không còn nút "Configure"
                 col1, col2, col3 = st.columns([2, 3, 2]) 
                 
-                sensor_type = sensor.get('sensor_type', 'unknown')
+                sensor_type = sensor.get('sensor_type', 'không xác định')
                 sensor_data = sensor.get('sensors', {})
                 if not isinstance(sensor_data, dict):
                     sensor_data = {}
                 
                 with col1:
                     st.markdown(f"**{sensor.get('node_id', 'N/A')}**")
-                    st.caption(f"Type: {sensor_type.title()}")
+                    st.caption(f"Loại: {sensor_type.title()}")
                 
                 with col2:
-                    # Hiển thị DỮ LIỆU THẬT thay vì placeholder
                     if sensor_type == 'soil':
                         moisture = sensor_data.get('soil_moisture')
                         temp = sensor_data.get('soil_temperature')
-                        st.markdown(f"💧 Moisture: **{moisture:.1f}%**" if isinstance(moisture, (int, float)) else "💧 Moisture: ...")
-                        st.caption(f"🌡️ Temp: **{temp:.1f}°C**" if isinstance(temp, (int, float)) else "🌡️ Temp: ...")
+                        st.markdown(f"💧 Độ ẩm: **{moisture:.1f}%**" if isinstance(moisture, (int, float)) else "💧 Độ ẩm: ...")
+                        st.caption(f"🌡️ Nhiệt độ: **{temp:.1f}°C**" if isinstance(temp, (int, float)) else "🌡️ Nhiệt độ: ...")
                     
                     elif sensor_type == 'atmospheric':
                         temp = sensor_data.get('air_temperature')
                         humidity = sensor_data.get('air_humidity')
                         wind = sensor_data.get('wind_speed')
-                        st.markdown(f"🌡️ Air Temp: **{temp:.1f}°C**" if isinstance(temp, (int, float)) else "🌡️ Air Temp: ...")
-                        st.caption(f"💧 Humidity: **{humidity:.1f}%** | 💨 Wind: **{wind:.1f} m/s**" if isinstance(humidity, (int, float)) and isinstance(wind, (int, float)) else "💧 Humidity/Wind: ...")
+                        st.markdown(f"🌡️ Nhiệt độ không khí: **{temp:.1f}°C**" if isinstance(temp, (int, float)) else "🌡️ Nhiệt độ không khí: ...")
+                        st.caption(f"💧 Độ ẩm: **{humidity:.1f}%** | 💨 Gió: **{wind:.1f} m/s**" if isinstance(humidity, (int, float)) and isinstance(wind, (int, float)) else "💧 Độ ẩm/Gió: ...")
                     
                     else:
-                        st.info("Unknown sensor type")
+                        st.info("Loại cảm biến không xác định")
                 
                 with col3:
-                    # Status động
                     st.markdown("🟢 **Online**")
-                    st.caption(f"Last Seen: {last_seen_time}")
-
+                    st.caption(f"Lần cuối thấy: {last_seen_time}")
 
 def render_realtime_data():
-    """Dữ liệu thời gian thực"""
-    st.subheader("📊 Real-time IoT Data")
+    st.subheader("📊 Dữ liệu IoT thời gian thực")
     
-    # Auto-refresh toggle
-    auto_refresh = st.checkbox("🔄 Auto-refresh (30s)", value=True)
+    auto_refresh = st.checkbox("🔄 Tự động làm mới (30s)", value=True)
     
     if auto_refresh:
         if "last_refresh" not in st.session_state:
@@ -450,10 +393,9 @@ def render_realtime_data():
             st.session_state.last_refresh = datetime.now()
             st.rerun()
     
-    # Chọn hub để xem dữ liệu (từ cache)
     user_hubs_data = get_user_hub_data(st.user.email)
     if not user_hubs_data:
-        st.warning("Please register a hub first.")
+        st.warning("Vui lòng đăng ký hub trước.")
         return
     
     hub_options = {}
@@ -466,7 +408,7 @@ def render_realtime_data():
                 hub_options[hub_id] = hub_name
     
     selected_hub_id = st.selectbox(
-        "Select Hub for Data",
+        "Chọn Hub để xem dữ liệu",
         options=list(hub_options.keys()),
         format_func=lambda x: hub_options[x],
         key="realtime_hub_selector"
@@ -475,24 +417,22 @@ def render_realtime_data():
     if selected_hub_id:
         try:
             client = get_iot_client()
-            # API trả về bản ghi data (không phải wrapper APIResponse)
             latest_data = client.get_latest_data(selected_hub_id)
 
             if not latest_data:
-                st.warning("No recent data available for this hub.")
+                st.warning("Không có dữ liệu gần đây cho hub này.")
                 return
 
-            # 'latest_data' LÀ bản ghi telemetry, 'data' nằm bên trong nó
             data = latest_data.get('data')
             
             if not data or not isinstance(data, dict):
-                st.error("Invalid data structure received from API.")
+                st.error("Cấu trúc dữ liệu không hợp lệ nhận được từ API.")
                 return
                 
             col1, col2 = st.columns(2)
             
             with col1:
-                st.subheader("🌡️ Soil Sensors")
+                st.subheader("🌡️ Cảm biến đất")
                 soil_nodes = data.get('soil_nodes', [])
                 if isinstance(soil_nodes, list) and soil_nodes:
                     for node in soil_nodes:
@@ -501,20 +441,14 @@ def render_realtime_data():
                             if isinstance(sensors, dict):
                                 moisture = sensors.get('soil_moisture')
                                 temp = sensors.get('soil_temperature')
-                                node_id = node.get('node_id', 'Unknown')
-                                st.metric(
-                                    f"Soil Moisture ({node_id})",
-                                    f"{moisture:.1f}%" if isinstance(moisture, (int, float)) else "N/A"
-                                )
-                                st.metric(
-                                    f"Soil Temperature ({node_id})",
-                                    f"{temp:.1f}°C" if isinstance(temp, (int, float)) else "N/A"
-                                )
+                                node_id = node.get('node_id', 'Không xác định')
+                                st.metric(f"Độ ẩm đất ({node_id})", f"{moisture:.1f}%" if isinstance(moisture, (int, float)) else "N/A")
+                                st.metric(f"Nhiệt độ đất ({node_id})", f"{temp:.1f}°C" if isinstance(temp, (int, float)) else "N/A")
                 else:
-                    st.info("No soil sensor data.")
+                    st.info("Không có dữ liệu cảm biến đất.")
 
             with col2:
-                st.subheader("🌤️ Atmospheric Sensors")
+                st.subheader("🌤️ Cảm biến khí quyển")
                 atm_node = data.get('atmospheric_node')
                 if isinstance(atm_node, dict):
                     atm_sensors = atm_node.get('sensors', {})
@@ -522,15 +456,13 @@ def render_realtime_data():
                         temp = atm_sensors.get('air_temperature')
                         humidity = atm_sensors.get('air_humidity')
                         wind = atm_sensors.get('wind_speed')
-                        st.metric("Air Temperature", f"{temp:.1f}°C" if isinstance(temp, (int, float)) else "N/A")
-                        st.metric("Humidity", f"{humidity:.1f}%" if isinstance(humidity, (int, float)) else "N/A")
-                        st.metric("Wind Speed", f"{wind:.1f} m/s" if isinstance(wind, (int, float)) else "N/A")
+                        st.metric("Nhiệt độ không khí", f"{temp:.1f}°C" if isinstance(temp, (int, float)) else "N/A")
+                        st.metric("Độ ẩm", f"{humidity:.1f}%" if isinstance(humidity, (int, float)) else "N/A")
+                        st.metric("Tốc độ gió", f"{wind:.1f} m/s" if isinstance(wind, (int, float)) else "N/A")
                 else:
-                    st.info("No atmospheric sensor data.")
+                    st.info("Không có dữ liệu cảm biến khí quyển.")
 
-            # Data visualization
-            st.subheader("📈 Data Trends")
-            # API trả về đối tượng data chứa 'items'
+            st.subheader("📈 Xu hướng dữ liệu")
             history_data = client.get_data_history(selected_hub_id, limit=24) 
 
             if history_data and history_data.get('items') and isinstance(history_data['items'], list):
@@ -539,7 +471,6 @@ def render_realtime_data():
                 if 'timestamp' in df.columns:
                     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
                 
-                # Extract nested data safely
                 def extract_soil_moisture(d):
                     if isinstance(d, dict) and 'soil_nodes' in d and d['soil_nodes']:
                         nodes = d['soil_nodes']
@@ -570,39 +501,31 @@ def render_realtime_data():
                 df = df.dropna(subset=['timestamp']).sort_values('timestamp')
 
                 if len(df) > 0:
-                    fig = make_subplots(
-                        rows=3, cols=1,
-                        subplot_titles=('Soil Moisture (%)', 'Air Temperature (°C)', 'Air Humidity (%)'),
-                        vertical_spacing=0.1,
-                        shared_xaxes=True
-                    )
+                    fig = make_subplots(rows=3, cols=1, subplot_titles=('Độ ẩm đất (%)', 'Nhiệt độ không khí (°C)', 'Độ ẩm không khí (%)'), vertical_spacing=0.1, shared_xaxes=True)
                     
                     if 'soil_moisture' in df and not df['soil_moisture'].isna().all():
-                        fig.add_trace(go.Scatter(x=df['timestamp'], y=df['soil_moisture'], name='Soil Moisture'), row=1, col=1)
+                        fig.add_trace(go.Scatter(x=df['timestamp'], y=df['soil_moisture'], name='Độ ẩm đất'), row=1, col=1)
                     if 'air_temperature' in df and not df['air_temperature'].isna().all():
-                        fig.add_trace(go.Scatter(x=df['timestamp'], y=df['air_temperature'], name='Air Temperature'), row=2, col=1)
+                        fig.add_trace(go.Scatter(x=df['timestamp'], y=df['air_temperature'], name='Nhiệt độ không khí'), row=2, col=1)
                     if 'air_humidity' in df and not df['air_humidity'].isna().all():
-                        fig.add_trace(go.Scatter(x=df['timestamp'], y=df['air_humidity'], name='Air Humidity'), row=3, col=1)
+                        fig.add_trace(go.Scatter(x=df['timestamp'], y=df['air_humidity'], name='Độ ẩm không khí'), row=3, col=1)
                     
                     fig.update_layout(height=600, showlegend=False)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("No valid historical data to plot.")
+                    st.info("Không có dữ liệu lịch sử hợp lệ để vẽ biểu đồ.")
             else:
-                st.info("Not enough historical data to draw trends.")
+                st.info("Không đủ dữ liệu lịch sử để vẽ xu hướng.")
         except Exception as e:
-            st.error(f"Error loading real-time data: {e}")
-
+            st.error(f"Lỗi khi tải dữ liệu thời gian thực: {e}")
 
 def render_iot_settings():
-    """Cài đặt IoT (Giữ nguyên, dùng DB local)"""
-    st.subheader("⚙️ IoT Settings")
+    st.subheader("⚙️ Cài đặt IoT")
     
-    # Tải cài đặt hiện có
     try:
         current_settings = db.get("iot_settings", {"user_email": st.user.email})
         if current_settings:
-            current_settings = current_settings[0] # Lấy bản ghi đầu tiên
+            current_settings = current_settings[0]
         else:
             current_settings = {}
     except Exception:
@@ -611,48 +534,39 @@ def render_iot_settings():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("📡 RF Communication")
-        
-        rf_frequency = st.number_input("RF Frequency (MHz)", value=current_settings.get("rf_frequency", 433.92), min_value=400.0, max_value=500.0)
-        rf_power = st.slider("RF Power (dBm)", min_value=0, max_value=20, value=current_settings.get("rf_power", 17))
-        rf_channel = st.selectbox("Default RF Channel", options=list(range(1, 11)), index=current_settings.get("rf_channel", 1) - 1 if current_settings.get("rf_channel") else 0)
-        
+        st.subheader("📡 Giao tiếp RF")
+        rf_frequency = st.number_input("Tần số RF (MHz)", value=current_settings.get("rf_frequency", 433.92), min_value=400.0, max_value=500.0)
+        rf_power = st.slider("Công suất RF (dBm)", min_value=0, max_value=20, value=current_settings.get("rf_power", 17))
+        rf_channel = st.selectbox("Kênh RF mặc định", options=list(range(1, 11)), index=current_settings.get("rf_channel", 1) - 1 if current_settings.get("rf_channel") else 0)
         st.info("📡 RF 433MHz với ăng ten 17dBi, khoảng cách tối đa ~1km")
         
-        st.subheader("🔄 Node Communication")
-        
-        polling_interval = st.slider("Polling Interval (minutes)", min_value=5, max_value=30, value=current_settings.get("polling_interval", 10))
-        node_timeout = st.slider("Node Timeout (seconds)", min_value=5, max_value=30, value=current_settings.get("node_timeout", 15))
-        retry_attempts = st.slider("Retry Attempts", min_value=1, max_value=5, value=current_settings.get("retry_attempts", 3))
-        
+        st.subheader("🔄 Giao tiếp Node")
+        polling_interval = st.slider("Khoảng thời gian lấy mẫu (phút)", min_value=5, max_value=30, value=current_settings.get("polling_interval", 10))
+        node_timeout = st.slider("Thời gian chờ Node (giây)", min_value=5, max_value=30, value=current_settings.get("node_timeout", 15))
+        retry_attempts = st.slider("Số lần thử lại", min_value=1, max_value=5, value=current_settings.get("retry_attempts", 3))
         st.info(f"Node chính gọi từng node con mỗi {polling_interval} phút")
     
     with col2:
-        st.subheader("🔋 Power Management")
-        
-        low_battery_threshold = st.slider("Low Battery Alert (%)", min_value=10, max_value=30, value=current_settings.get("low_battery_threshold", 20))
-        critical_battery_threshold = st.slider("Critical Battery Alert (%)", min_value=5, max_value=15, value=current_settings.get("critical_battery_threshold", 10))
-        
+        st.subheader("🔋 Quản lý năng lượng")
+        low_battery_threshold = st.slider("Cảnh báo pin yếu (%)", min_value=10, max_value=30, value=current_settings.get("low_battery_threshold", 20))
+        critical_battery_threshold = st.slider("Cảnh báo pin rất yếu (%)", min_value=5, max_value=15, value=current_settings.get("critical_battery_threshold", 10))
         st.info("🔋 Node con: pin 1100mAh, dùng được ~1 tháng")
         
-        st.subheader("😴 Sleep Mode")
-        
-        sleep_duration = st.slider("Sleep Duration (seconds)", min_value=3, max_value=10, value=current_settings.get("sleep_duration", 5))
-        listen_duration = st.slider("Listen Duration (ms)", min_value=200, max_value=1000, value=current_settings.get("listen_duration", 500))
-        
+        st.subheader("😴 Chế độ ngủ")
+        sleep_duration = st.slider("Thời gian ngủ (giây)", min_value=3, max_value=10, value=current_settings.get("sleep_duration", 5))
+        listen_duration = st.slider("Thời gian nghe (ms)", min_value=200, max_value=1000, value=current_settings.get("listen_duration", 500))
         st.info(f"Node con ngủ {sleep_duration}s, nghe {listen_duration}ms")
         
-        st.subheader("🚨 Alert Settings")
-        
-        enable_alerts = st.checkbox("Enable Push Notifications", value=current_settings.get("enable_alerts", True))
-        alert_email = st.text_input("Alert Email", value=current_settings.get("alert_email", st.user.email))
+        st.subheader("🚨 Cài đặt cảnh báo")
+        enable_alerts = st.checkbox("Bật thông báo đẩy", value=current_settings.get("enable_alerts", True))
+        alert_email = st.text_input("Email cảnh báo", value=current_settings.get("alert_email", st.user.email))
         
         if enable_alerts:
-            st.success("✅ Alerts will be sent to your email")
+            st.success("✅ Cảnh báo sẽ được gửi đến email của bạn")
         else:
-            st.warning("⚠️ Alerts disabled")
+            st.warning("⚠️ Cảnh báo đã tắt")
     
-    if st.button("💾 Save Settings", type="primary"):
+    if st.button("💾 Lưu cài đặt", type="primary"):
         settings = {
             "rf_frequency": rf_frequency,
             "rf_power": rf_power,
@@ -674,23 +588,22 @@ def render_iot_settings():
                 db.update("iot_settings", {"user_email": st.user.email}, settings)
             else:
                 db.add("iot_settings", settings)
-            st.success("✅ Settings saved successfully!")
+            st.success("✅ Đã lưu cài đặt!")
         except Exception as e:
-            st.error(f"Error saving settings: {e}")
+            st.error(f"Lỗi khi lưu cài đặt: {e}")
 
 def render_alerts():
-    """Hiển thị alerts từ IoT API"""
-    st.subheader("🚨 IoT Alerts")
+    st.subheader("🚨 Cảnh báo IoT")
     
     try:
         client = get_iot_client()
         user_hubs_data = get_user_hub_data(st.user.email)
     except Exception as e:
-        st.error(f"Error loading alerts: {e}")
+        st.error(f"Lỗi khi tải cảnh báo: {e}")
         return
     
     if not user_hubs_data:
-        st.warning("No hubs registered. Please register a hub first.")
+        st.warning("Chưa có hub nào được đăng ký. Vui lòng đăng ký hub trước.")
         return
     
     all_alerts = []
@@ -703,52 +616,42 @@ def render_alerts():
                 if hub_alerts_response and hub_alerts_response.get('items') and isinstance(hub_alerts_response['items'], list):
                     all_alerts.extend(hub_alerts_response['items'])
             except Exception:
-                continue  # Skip if error for this hub
+                continue
     
     if not all_alerts:
-        st.info("No alerts found. Your IoT system is running smoothly! 🎉")
+        st.info("Không tìm thấy cảnh báo nào. Hệ thống IoT của bạn đang hoạt động trơn tru! 🎉")
         return
     
     all_alerts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     
-    alert_level = st.selectbox("Filter by Level", ["All", "critical", "warning", "info"])
-    if alert_level != "All":
+    alert_level = st.selectbox("Lọc theo mức độ", ["Tất cả", "critical", "warning", "info"])
+    if alert_level != "Tất cả":
         all_alerts = [alert for alert in all_alerts if alert.get("level") == alert_level]
     
     for alert in all_alerts[:10]:
         if not isinstance(alert, dict):
             continue
         level = alert.get("level", "info")
-        message = alert.get("message", "No message")
-        created_at = alert.get("created_at", "Unknown time")
-        hub_id = alert.get("hub_id", "Unknown hub")
+        message = alert.get("message", "Không có tin nhắn")
+        created_at = alert.get("created_at", "Thời gian không xác định")
+        hub_id = alert.get("hub_id", "Hub không xác định")
         node_id = alert.get("node_id", "")
         
         if level == "critical":
             st.error(f"🚨 **CRITICAL** - {message}")
         elif level == "warning":
-            st.warning(f"⚠️ **WARNING** - {message}")
+            st.warning(f"⚠️ **CẢNH BÁO** - {message}")
         else:
-            st.info(f"ℹ️ **INFO** - {message}")
+            st.info(f"ℹ️ **THÔNG TIN** - {message}")
         
-        with st.expander(f"Details - {created_at[:16] if created_at != 'Unknown time' else 'Unknown'}"):
+        with st.expander(f"Chi tiết - {created_at[:16] if created_at != 'Thời gian không xác định' else 'Không xác định'}"):
             col1, col2 = st.columns(2)
             with col1:
-                st.write(f"**Hub ID:** {hub_id}")
-                st.write(f"**Node ID:** {node_id or 'N/A'}")
+                st.write(f"**ID Hub:** {hub_id}")
+                st.write(f"**ID Node:** {node_id or 'N/A'}")
             with col2:
-                st.write(f"**Level:** {level.upper()}")
-                st.write(f"**Time:** {created_at}")
+                st.write(f"**Mức độ:** {level.upper()}")
+                st.write(f"**Thời gian:** {created_at}")
     
-    if st.button("🗑️ Clear Old Alerts (older than 7 days)"):
-        st.info("This feature is handled automatically by the API server.")
-
-# -----
-# Hàm render_iot_management() là hàm chính cần được gọi từ trang chính
-# -----
-# if __name__ == "__main__":
-#     # Mock st.user.email để test
-#     class MockUser:
-#         email = "test@example.com"
-#     st.user = MockUser()
-#     render_iot_management()
+    if st.button("🗑️ Xóa các cảnh báo cũ (hơn 7 ngày)"):
+        st.info("Tính năng này được xử lý tự động bởi máy chủ API.")

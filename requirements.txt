@@ -21,6 +21,8 @@ numpy
 scikit-learn
 matplotlib
 seaborn
+toml
+
 
 # IoT API additional dependencies
 pydantic==2.5.0

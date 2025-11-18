@@ -8,17 +8,22 @@ from database import db
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
-# Base reference evapotranspiration (ET0) in mm/day. This is a crucial assumption.
-# Value for a sub-humid tropical region like Vietnam. Can be replaced by a weather API.
+# Base reference evapotranspiration (ET0) in mm/day.
+# This is a crucial assumption.
+# Value for a sub-humid tropical region like Vietnam.
+# Can be replaced by a weather API.
 DEFAULT_ET0_MM_DAY = 4.5
 
 # Average irrigation system flow rate in m³/hour per hectare.
 # This is another assumption for calculating time.
 DEFAULT_FLOW_RATE_M3_H_HA = 5.0
 
+
 # --- Core Calculation ---
 
-def calculate_daily_water_needs(field: dict, et0_mm_day: float = DEFAULT_ET0_MM_DAY) -> dict:
+def calculate_daily_water_needs(
+        field: dict,
+        et0_mm_day: float = DEFAULT_ET0_MM_DAY) -> dict:
     """
     Calculates the daily water requirement for a given field.
 
@@ -49,8 +54,8 @@ def calculate_daily_water_needs(field: dict, et0_mm_day: float = DEFAULT_ET0_MM_
     # 3. Adjust for irrigation system efficiency
     # Actual water to apply = Water needed / (Efficiency / 100)
     if irr_eff <= 0:
-        irr_eff = 85 # fallback
-    
+        irr_eff = 85  # fallback
+
     adjusted_water_m3 = water_volume_m3 / (irr_eff / 100.0)
 
     # 4. Calculate irrigation time
@@ -76,6 +81,7 @@ def get_hub_id_for_field(user_email: str, field_id: str) -> str | None:
         return hub[0].get('hub_id')
     return None
 
+
 def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
     """
     Lấy GÓI TIN telemetry MỚI NHẤT (không cache) để tính toán.
@@ -83,22 +89,22 @@ def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
     hub_id = get_hub_id_for_field(user_email, field_id)
     if not hub_id:
         # logger.warning(f"Không tìm thấy hub cho field {field_id}")
-        return None 
+        return None
 
     telemetry_data = db.get("telemetry", {"hub_id": hub_id})
     if not telemetry_data:
         # logger.warning(f"Không tìm thấy telemetry cho hub {hub_id}")
         return None
-    
+
     try:
         latest_entry = sorted(
-            telemetry_data, 
-            key=lambda x: x.get('timestamp', '1970-01-01T00:00:00+00:00'), 
+            telemetry_data,
+            key=lambda x: x.get('timestamp', '1970-01-01T00:00:00+00:00'),
             reverse=True
         )[0]
     except IndexError:
         return None
-        
+
     data = latest_entry.get("data", {})
     stats = {
         "avg_moisture": None,
@@ -108,12 +114,14 @@ def get_latest_telemetry_stats(user_email: str, field_id: str) -> dict | None:
 
     nodes = data.get("soil_nodes", [])
     if nodes:
-        values = [n['sensors']['soil_moisture'] for n in nodes if n.get('sensors') and 'soil_moisture' in n['sensors']]
+        values = [
+            n['sensors']['soil_moisture'] for n in nodes if n.get(
+                'sensors') and 'soil_moisture' in n['sensors']]
         if values:
             stats["avg_moisture"] = sum(values) / len(values)
 
     atm_node = data.get("atmospheric_node", {})
     if atm_node.get('sensors') and 'rain_intensity' in atm_node['sensors']:
         stats["rain_intensity"] = atm_node['sensors']['rain_intensity']
-        
+
     return stats

@@ -1,0 +1,524 @@
+{
+  "crops": [
+    {
+      "name": "Cà Chua",
+      "call_name": "tomato",
+      "water_needs": {
+        "initial": 0.6,
+        "development": 0.8,
+        "mid_season": 1.0,
+        "late_season": 0.7
+      },
+      "growth_stages": {
+        "initial": 20,
+        "development": 30,
+        "mid_season": 30,
+        "late_season": 20
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 10,
+          "max": 35
+        },
+        "do_am": {
+          "min": 60,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Xà Lách",
+      "call_name": "lettuce",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.6,
+        "mid_season": 0.8,
+        "late_season": 0.5
+      },
+      "growth_stages": {
+        "initial": 15,
+        "development": 20,
+        "mid_season": 20,
+        "late_season": 15
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 5,
+          "max": 25
+        },
+        "do_am": {
+          "min": 50,
+          "max": 70
+        }
+      }
+    },
+    {
+      "name": "Ngô",
+      "call_name": "corn",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.8,
+        "mid_season": 1.2,
+        "late_season": 0.7
+      },
+      "growth_stages": {
+        "initial": 15,
+        "development": 35,
+        "mid_season": 40,
+        "late_season": 20
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 10,
+          "max": 32
+        },
+        "do_am": {
+          "min": 50,
+          "max": 70
+        }
+      }
+    },
+    {
+      "name": "Lúa Mì",
+      "call_name": "wheat",
+      "water_needs": {
+        "initial": 0.3,
+        "development": 0.7,
+        "mid_season": 1.1,
+        "late_season": 0.5
+      },
+      "growth_stages": {
+        "initial": 20,
+        "development": 40,
+        "mid_season": 50,
+        "late_season": 30
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 5,
+          "max": 25
+        },
+        "do_am": {
+          "min": 40,
+          "max": 60
+        }
+      }
+    },
+    {
+      "name": "Đậu Nành",
+      "call_name": "soybean",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.8,
+        "mid_season": 1.1,
+        "late_season": 0.6
+      },
+      "growth_stages": {
+        "initial": 15,
+        "development": 35,
+        "mid_season": 45,
+        "late_season": 25
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 15,
+          "max": 35
+        },
+        "do_am": {
+          "min": 50,
+          "max": 70
+        }
+      }
+    },
+    {
+      "name": "Khoai Tây",
+      "call_name": "potato",
+      "water_needs": {
+        "initial": 0.5,
+        "development": 0.8,
+        "mid_season": 1.0,
+        "late_season": 0.7
+      },
+      "growth_stages": {
+        "initial": 25,
+        "development": 35,
+        "mid_season": 35,
+        "late_season": 25
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 10,
+          "max": 25
+        },
+        "do_am": {
+          "min": 60,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Khoai Lang",
+      "call_name": "sweet_potato",
+      "water_needs": {
+        "initial": 0.5,
+        "development": 0.8,
+        "mid_season": 1.0,
+        "late_season": 0.7
+      },
+      "growth_stages": {
+        "initial": 30,
+        "development": 40,
+        "mid_season": 40,
+        "late_season": 30
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 60,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Sắn",
+      "call_name": "cassava",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.7,
+        "mid_season": 0.9,
+        "late_season": 0.5
+      },
+      "growth_stages": {
+        "initial": 45,
+        "development": 90,
+        "mid_season": 90,
+        "late_season": 45
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 50,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Mía",
+      "call_name": "sugarcane",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.8,
+        "mid_season": 1.2,
+        "late_season": 0.7
+      },
+      "growth_stages": {
+        "initial": 60,
+        "development": 150,
+        "mid_season": 120,
+        "late_season": 35
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 38
+        },
+        "do_am": {
+          "min": 50,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Bông",
+      "call_name": "cotton",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.8,
+        "mid_season": 1.2,
+        "late_season": 0.6
+      },
+      "growth_stages": {
+        "initial": 20,
+        "development": 50,
+        "mid_season": 60,
+        "late_season": 40
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 40,
+          "max": 60
+        }
+      }
+    },
+    {
+      "name": "Lúa",
+      "call_name": "rice",
+      "water_needs": {
+        "initial": 1.2,
+        "development": 1.2,
+        "mid_season": 1.2,
+        "late_season": 0.8
+      },
+      "growth_stages": {
+        "initial": 20,
+        "development": 40,
+        "mid_season": 40,
+        "late_season": 30
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 70,
+          "max": 90
+        }
+      }
+    },
+    {
+      "name": "Lạc",
+      "call_name": "peanut",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.7,
+        "mid_season": 0.9,
+        "late_season": 0.5
+      },
+      "growth_stages": {
+        "initial": 20,
+        "development": 40,
+        "mid_season": 40,
+        "late_season": 30
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 50,
+          "max": 70
+        }
+      }
+    },
+    {
+      "name": "Hướng Dương",
+      "call_name": "sunflower",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.8,
+        "mid_season": 1.1,
+        "late_season": 0.6
+      },
+      "growth_stages": {
+        "initial": 15,
+        "development": 35,
+        "mid_season": 35,
+        "late_season": 25
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 15,
+          "max": 30
+        },
+        "do_am": {
+          "min": 40,
+          "max": 60
+        }
+      }
+    },
+    {
+      "name": "Đậu",
+      "call_name": "bean",
+      "water_needs": {
+        "initial": 0.5,
+        "development": 0.8,
+        "mid_season": 1.0,
+        "late_season": 0.6
+      },
+      "growth_stages": {
+        "initial": 15,
+        "development": 25,
+        "mid_season": 25,
+        "late_season": 20
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 15,
+          "max": 30
+        },
+        "do_am": {
+          "min": 50,
+          "max": 70
+        }
+      }
+    },
+    {
+      "name": "Cà Phê",
+      "call_name": "coffee",
+      "water_needs": {
+        "initial": 0.5,
+        "development": 0.8,
+        "mid_season": 1.1,
+        "late_season": 0.7
+      },
+      "growth_stages": {
+        "initial": 60,
+        "development": 120,
+        "mid_season": 150,
+        "late_season": 35
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 15,
+          "max": 25
+        },
+        "do_am": {
+          "min": 60,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Cao Su",
+      "call_name": "rubber",
+      "water_needs": {
+        "initial": 0.5,
+        "development": 0.8,
+        "mid_season": 1.0,
+        "late_season": 0.7
+      },
+      "growth_stages": {
+        "initial": 90,
+        "development": 270,
+        "mid_season": 365,
+        "late_season": 180
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 70,
+          "max": 90
+        }
+      }
+    },
+    {
+      "name": "Hồ Tiêu",
+      "call_name": "pepper",
+      "water_needs": {
+        "initial": 0.6,
+        "development": 0.9,
+        "mid_season": 1.1,
+        "late_season": 0.8
+      },
+      "growth_stages": {
+        "initial": 30,
+        "development": 90,
+        "mid_season": 120,
+        "late_season": 60
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 60,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Điều",
+      "call_name": "cashew",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.7,
+        "mid_season": 0.9,
+        "late_season": 0.5
+      },
+      "growth_stages": {
+        "initial": 60,
+        "development": 180,
+        "mid_season": 180,
+        "late_season": 90
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 35
+        },
+        "do_am": {
+          "min": 50,
+          "max": 70
+        }
+      }
+    },
+    {
+      "name": "Thanh Long",
+      "call_name": "dragon_fruit",
+      "water_needs": {
+        "initial": 0.4,
+        "development": 0.7,
+        "mid_season": 0.9,
+        "late_season": 0.6
+      },
+      "growth_stages": {
+        "initial": 30,
+        "development": 60,
+        "mid_season": 90,
+        "late_season": 30
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 20,
+          "max": 40
+        },
+        "do_am": {
+          "min": 50,
+          "max": 80
+        }
+      }
+    },
+    {
+      "name": "Sầu Riêng",
+      "call_name": "durian",
+      "water_needs": {
+        "initial": 0.6,
+        "development": 0.9,
+        "mid_season": 1.2,
+        "late_season": 0.8
+      },
+      "growth_stages": {
+        "initial": 90,
+        "development": 180,
+        "mid_season": 180,
+        "late_season": 90
+      },
+      "warnings": {
+        "nhiet_do": {
+          "min": 22,
+          "max": 35
+        },
+        "do_am": {
+          "min": 70,
+          "max": 90
+        }
+      }
+    }
+  ]
+}

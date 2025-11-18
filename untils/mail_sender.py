@@ -1,14 +1,15 @@
 import smtplib
 import ssl
 from email.message import EmailMessage
-import os
+import streamlit as st
 
-# Lấy thông tin cấu hình từ biến môi trường (an toàn hơn)
-# Nếu không có, dùng tạm thông tin bạn cung cấp làm fallback
-SMTP_SERVER = os.getenv("SMTP_SERVER", "mail.fptoj.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587)) # 587 là cổng chuẩn cho STARTTLS
-SENDER_EMAIL = os.getenv("SENDER_EMAIL", "noreply@fptoj.com")
-SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "eOLumParnUmNicestaciPpYGdOUracen,48,}")
+# Lấy thông tin cấu hình từ Streamlit Secrets (an toàn hơn)
+smtp_config = st.secrets.get("smtp", {})
+SMTP_SERVER = smtp_config.get("server", "mail.fptoj.com")
+SMTP_PORT = smtp_config.get("port", 587)
+SENDER_EMAIL = smtp_config.get("email", "noreply@fptoj.com")
+SENDER_PASSWORD = smtp_config.get("password")  # Sẽ là None nếu không có
+
 
 def send_email(subject: str, body: str, to_email: str):
     """
@@ -19,27 +20,23 @@ def send_email(subject: str, body: str, to_email: str):
         body (str): Nội dung (text) của email.
         to_email (str): Email của người nhận.
     """
-    
+
     # Kiểm tra cấu hình
-    if not SENDER_PASSWORD or "YOUR_PASSWORD" in SENDER_PASSWORD:
-         # Nếu mật khẩu VẪN LÀ mật khẩu bạn cung cấp, tiếp tục
-         if SENDER_PASSWORD == "eOLumParnUmNicestaciPpYGdOUracen,48,}":
-             print("Đang sử dụng mật khẩu SMTP được cung cấp...")
-         else:
-             # Nếu là biến môi trường rỗng hoặc mặc định
-             print("################################################################")
-             print("### 📢 WARNING: SMTP is not configured.                 ###")
-             print("### Please set SMTP_SERVER, SENDER_EMAIL, SENDER_PASSWORD ###")
-             print("### as environment variables to enable email.             ###")
-             print("################################################################")
-             return {"status": "skipped", "message": "SMTP not configured"}
+    if not SENDER_PASSWORD:
+        print("################################################################")
+        print("### 📢 WARNING: SMTP is not configured.                      ###")
+        print("### Please set [smtp] section in .streamlit/secrets.toml   ###")
+        print("################################################################")
+        return {
+            "status": "skipped",
+            "message": "SMTP not configured in Streamlit Secrets"}
 
     # Tạo đối tượng EmailMessage
     msg = EmailMessage()
     msg['Subject'] = f"[TerraSync] {subject}"
     msg['From'] = f"TerraSync Alerts <{SENDER_EMAIL}>"
     msg['To'] = to_email
-    msg.set_content(body) # Nội dung text đơn giản
+    msg.set_content(body)  # Nội dung text đơn giản
 
     # Thêm phiên bản HTML (để email đẹp hơn)
     msg.add_alternative(f"""
@@ -47,8 +44,18 @@ def send_email(subject: str, body: str, to_email: str):
     <head>
         <style>
             body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-            .container {{ width: 90%; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }}
-            .header {{ font-size: 24px; color: #d9534f; font-weight: bold; }}
+            .container {{
+                width: 90%;
+                margin: auto;
+                padding: 20px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+            }}
+            .header {{
+                font-size: 24px;
+                color: #d9534f;
+                font-weight: bold;
+            }}
             .content {{ margin-top: 20px; }}
         </style>
     </head>
@@ -69,15 +76,16 @@ def send_email(subject: str, body: str, to_email: str):
     try:
         # Tạo context SSL an toàn
         context = ssl.create_default_context()
-        
-        print(f"Connecting to SMTP server {SMTP_SERVER} on port {SMTP_PORT}...")
-        
+
+        print(
+            f"Connecting to SMTP server {SMTP_SERVER} on port {SMTP_PORT}...")
+
         # Sử dụng smtplib.SMTP cho cổng 587 (STARTTLS)
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls(context=context) # Nâng cấp lên kết nối an toàn
+            server.starttls(context=context)  # Nâng cấp lên kết nối an toàn
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
-            
+
         print(f"Successfully sent email to {to_email}")
         # Lấy Message-ID làm ID trả về nếu có
         return {"status": "success", "id": msg.get('Message-ID', "sent")}

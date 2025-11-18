@@ -3,7 +3,6 @@ from streamlit_option_menu import option_menu
 import google.generativeai as genai
 import os
 from datetime import datetime
-from copy import deepcopy
 
 # Import các page
 from pages.dashboard import render_dashboard
@@ -22,7 +21,6 @@ from utils import (
     fetch_history,
     fetch_latest_telemetry,
     generate_schedule,
-    get_default_fields,
     get_fields_from_db,
     predict_water_needs
 )
@@ -37,10 +35,12 @@ api_key = (
     or st.secrets.get("gemini", {}).get("api_key", "")
 )
 if not api_key:
-    st.error("⚠️ Missing Gemini API key! Please set GEMINI_API_KEY or secrets.toml.")
+    st.error(
+        "⚠️ Missing Gemini API key! Please set GEMINI_API_KEY or secrets.toml.")
 else:
     genai.configure(api_key=api_key)
 
+st.set_page_config(layout="wide")
 
 # -----------------------------
 # ✅ Khởi tạo Session States
@@ -52,13 +52,16 @@ if "show_ai" not in st.session_state:
     st.session_state.show_ai = False
 
 if "hydration_jobs" not in st.session_state:
-    st.session_state.hydration_jobs = {"completed": 0, "active": 0, "remaining": 0}
+    st.session_state.hydration_jobs = {
+        "completed": 0, "active": 0, "remaining": 0}
 
 if "demo_mode" not in st.session_state:
-    st.session_state.demo_mode = st.secrets.get("demo", {}).get("enabled", False)
+    st.session_state.demo_mode = st.secrets.get(
+        "demo", {}).get(
+        "enabled", False)
 
 if "fields" not in st.session_state:
-    st.session_state.fields = get_fields_from_db() or get_default_fields()
+    st.session_state.fields = get_fields_from_db()
 
 
 def classify_moisture(value: float) -> str:
@@ -76,7 +79,10 @@ def update_fields_from_telemetry():
     if not telemetry:
         return
     soil_nodes = telemetry.get("data", {}).get("soil_nodes", [])
-    node_lookup = {node.get("node_id"): node.get("sensors", {}) for node in soil_nodes}
+    node_lookup = {
+        node.get("node_id"): node.get(
+            "sensors",
+            {}) for node in soil_nodes}
     totals = {"completed": 0, "active": 0, "remaining": 0}
     for field in st.session_state.fields:
         sensors = node_lookup.get(field.get("node_id"))
@@ -84,12 +90,13 @@ def update_fields_from_telemetry():
             continue
         moisture = sensors.get("soil_moisture")
         temperature = sensors.get("soil_temperature")
-        
+
         # Predict water needs using the new function
         predicted_water = predict_water_needs(field, telemetry)
         field["today_water"] = predicted_water
         # Simple estimation for time needed based on predicted water
-        field["time_needed"] = round(predicted_water / 20, 1) if predicted_water > 0 else 0.0
+        field["time_needed"] = round(
+            predicted_water / 20, 1) if predicted_water > 0 else 0.0
 
         if moisture is not None:
             field["live_moisture"] = round(moisture, 1)
@@ -123,7 +130,8 @@ def load_iot_snapshot(force: bool = False):
         st.session_state.alerts = fetch_alerts(limit=20)
         st.session_state.last_sync = st.session_state.telemetry.get("timestamp")
     update_fields_from_telemetry()
-    st.session_state.schedule = generate_schedule(st.session_state.get("telemetry"))
+    st.session_state.schedule = generate_schedule(
+        st.session_state.get("telemetry"))
 
 
 # -----------------------------
@@ -134,10 +142,16 @@ if not st.user.is_logged_in:
     render_login()
     st.stop()
 
+# Check if user is admin
+if st.user.email == "kienpc872009@gmail.com":
+    st.session_state.is_admin = True
+else:
+    st.session_state.is_admin = False
+
+
 # Lưu user data vào database khi login
 if "user_saved" not in st.session_state:
     try:
-        from database import db
         user_data = {
             "email": st.user.email,
             "name": st.user.name or "",
@@ -146,7 +160,7 @@ if "user_saved" not in st.session_state:
             "last_login": datetime.now().isoformat(),
             "is_active": True
         }
-        
+
         # Tạo hoặc cập nhật user
         existing_user = db.get_user_by_email(st.user.email)
 
@@ -155,22 +169,28 @@ if "user_saved" not in st.session_state:
             update_data = {
                 "last_login": datetime.now().isoformat(),
                 "name": st.user.name or existing_user.get('name', ''),
-                "picture": getattr(st.user, 'picture', '') or existing_user.get('picture', '')
-            }
+                "picture": getattr(
+                    st.user,
+                    'picture',
+                    '') or existing_user.get(
+                    'picture',
+                    '')}
             db.update("users", {"email": st.user.email}, update_data)
             st.session_state.user_saved = True
         else:
             db.add("users", user_data)
             st.session_state.user_saved = True
             st.session_state.new_user = True
-            
+
     except Exception as e:
         st.error(f"Lỗi lưu thông tin user: {e}")
         print(f"Database error: {e}")
 
 # Hiển thị thông báo cho user mới
 if st.session_state.get("new_user", False):
-    st.success("🎉 Chào mừng bạn đến với TerraSync IoT! Hãy bắt đầu bằng cách thêm ruộng đầu tiên của bạn.")
+    st.success(
+        "🎉 Chào mừng bạn đến với TerraSync IoT! Hãy bắt đầu bằng cách thêm "
+        "ruộng đầu tiên của bạn.")
     st.session_state.new_user = False
 
 # -----------------------------
@@ -190,7 +210,7 @@ if (datetime.now() - st.session_state.last_poll).total_seconds() > 30:
     load_iot_snapshot(force=True)
     st.session_state.last_poll = datetime.now()
     st.session_state.refresh_notice = True
-    #st.rerun()
+    # st.rerun()
 
 # -----------------------------
 # ✅ Sidebar Navigation
@@ -198,8 +218,11 @@ if (datetime.now() - st.session_state.last_poll).total_seconds() > 30:
 with st.sidebar:
     selected = option_menu(
         "🌱 TerraSync",
-        ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask CropNet AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"],
-        icons=["house", "grid", "plus", "calendar", "chat", "wifi", "robot", "image", "gear", "question-circle"],
+        ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask CropNet AI",
+         "IoT Management", "AI Detection", "Satellite View", "Settings",
+         "Help Center"],
+        icons=["house", "grid", "plus", "calendar", "chat", "wifi", "robot",
+               "image", "gear", "question-circle"],
         default_index=0,
         menu_icon="psychiatry"
     )
@@ -219,9 +242,9 @@ with st.sidebar:
 # ✅ Header Section
 # -----------------------------
 def render_top_section(location="Paso Robles Farm", Page_Title=""):
-    
+
     user_data = db.get_user_by_email(st.user.email)
-    fname= user_data.get('organization', '')
+    fname = user_data.get('organization', '')
     location = f"{fname} Farm" if fname else location
     date = datetime.now()
     day = date.strftime("%A")
@@ -296,9 +319,19 @@ if st.session_state.get("navigate_to"):
     target_page = st.session_state.navigate_to
     # Clear navigation request
     del st.session_state.navigate_to
-    
+
     # Find the index of target page
-    page_options = ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask Sprout AI", "IoT Management", "AI Detection", "Satellite View", "Settings", "Help Center"]
+    page_options = [
+        "Dashboard",
+        "My Fields",
+        "Add Field",
+        "My Schedule",
+        "Ask Sprout AI",
+        "IoT Management",
+        "AI Detection",
+        "Satellite View",
+        "Settings",
+        "Help Center"]
     if target_page in page_options:
         target_index = page_options.index(target_page)
         # Update selected page

@@ -1,30 +1,40 @@
-# pages/my_fields.py
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
-from database import db
+from database import db, crop_db
 from datetime import datetime, timezone
 import logging
-# Import CROP_DATABASE từ add_field.py
-from .add_field import CROP_DATABASE 
-# Import logic từ module tập trung
-from untils.irrigation_logic import get_latest_telemetry_stats
+from utils import get_latest_telemetry_stats
+import toml
+from pathlib import Path
 
-# Cấu hình logging
 logger = logging.getLogger("my_fields_app")
 
-# --- Hằng số cho logic tưới tiêu (có thể chỉnh) ---
-MOISTURE_MIN_THRESHOLD = 25.0  # Dưới mức này là 'dehydrated'
-MOISTURE_MAX_THRESHOLD = 75.0  # Trên mức này là 'hydrated'
-RAIN_THRESHOLD_MMH = 1.0       # Mưa (mm/h) để coi là đang tưới
 
-# ========================================
-# HELPER: Vòng tròn tiến độ (Giữ nguyên)
-# ========================================
+@st.cache_resource
+def load_config():
+    config_path = Path(".streamlit/appcfg.toml")
+    if not config_path.exists():
+        st.error(
+            f"Cảnh báo: Không tìm thấy file cấu hình tại '{config_path}'. Sử dụng giá trị mặc định.")
+        return {}
+    try:
+        return toml.load(config_path)
+    except Exception as e:
+        st.error(f"Lỗi khi đọc file cấu hình: {e}. Sử dụng giá trị mặc định.")
+        return {}
+
+
+config = load_config()
+irrigation_cfg = config.get('irrigation', {})
+MOISTURE_MIN_THRESHOLD = irrigation_cfg.get('moisture_min_threshold', 25.0)
+MOISTURE_MAX_THRESHOLD = irrigation_cfg.get('moisture_max_threshold', 55.0)
+RAIN_THRESHOLD_MMH = irrigation_cfg.get('rain_threshold_mmh', 1.0)
+
+
 def render_progress(value):
-    """Hiển thị vòng tròn tiến độ"""
-    value = int(value) 
+    value = int(value)
     color = "#28a745" if value >= 80 else "#ffc107" if value >= 30 else "#dc3545"
     html = f"""
     <div style="position: relative; width: 60px; height: 60px; margin: auto;">
@@ -37,82 +47,54 @@ def render_progress(value):
     """
     return html
 
-# ========================================
-# HELPER: Tải dữ liệu Field (Giữ nguyên)
-# ========================================
+
 @st.cache_data(ttl=60)
 def get_field_data(user_email: str):
-    """Tải và phân tích dữ liệu fields từ DB."""
-    
     user_fields = db.get("fields", {"user_email": user_email})
     fields = user_fields if user_fields else []
-    
-    hydration_jobs = {
-        'completed': 0,
-        'active': 0,
-        'remaining': 0
-    }
-    
+
+    hydration_jobs = {'completed': 0, 'active': 0, 'remaining': 0}
+
     for f in fields:
         progress = f.get('progress', 0)
         if progress == 100:
             hydration_jobs['completed'] += 1
         elif 0 < progress < 100:
             hydration_jobs['active'] += 1
-        else: 
+        else:
             hydration_jobs['remaining'] += 1
-            
+
     return fields, hydration_jobs
 
-# ========================================
-# HELPERS: Dữ liệu cây trồng (Giữ nguyên)
-# ========================================
-def get_crop_characteristics(crop_name: str):
-    """Lấy thông số mặc định của cây trồng."""
-    if crop_name in CROP_DATABASE:
-        return CROP_DATABASE[crop_name]
-    return {
-        "crop_coefficient": 1.0,
-        "irrigation_efficiency": 85,
-    }
 
-def get_available_crops(user_email: str) -> list[str]:
-    """Lấy danh sách các loại cây trồng user đã dùng + cây trồng mặc định."""
+def get_available_crops() -> list[str]:
     try:
-        user_crops = db.get("crops", {"user_email": user_email}) or []
-        names = [c.get("name") for c in user_crops if c.get("name")]
-        allc = list(CROP_DATABASE.keys())
-        for n in names:
-            if n not in allc:
-                allc.append(n)
-        return sorted(list(set(allc)))
+        crops = crop_db.get("crops")
+        return sorted([c.get("name") for c in crops if c.get("name")])
     except Exception:
-        return sorted(list(CROP_DATABASE.keys()))
+        return []
 
-# ========================================
-# HÀM MỚI: Cập nhật trạng thái
-# ========================================
+
 def run_field_update(user_email: str):
-    """
-    Chạy tính toán động cho TẤT CẢ các field và LƯU vào DB.
-    """
     fields = db.get("fields", {"user_email": user_email})
     if not fields:
         return 0
-    
+
     updated_count = 0
     for field in fields:
         live_stats = get_latest_telemetry_stats(user_email, field.get('id'))
-        
-        # Chỉ cập nhật nếu có dữ liệu cảm biến
+
         if live_stats and live_stats.get("avg_moisture") is not None:
             avg_moisture = live_stats["avg_moisture"]
             rain_intensity = live_stats["rain_intensity"]
-            
-            # Lấy mục tiêu BASE từ DB
-            base_water = field.get('base_today_water', field.get('today_water', 0))
-            base_time = field.get('base_time_needed', field.get('time_needed', 0))
-            
+
+            base_water = field.get(
+                'base_today_water', field.get(
+                    'today_water', 0))
+            base_time = field.get(
+                'base_time_needed', field.get(
+                    'time_needed', 0))
+
             new_status = field.get('status')
             new_progress = field.get('progress')
             new_water = base_water
@@ -126,24 +108,23 @@ def run_field_update(user_email: str):
             elif avg_moisture < MOISTURE_MIN_THRESHOLD:
                 new_status = "dehydrated"
                 new_progress = 0
-                new_water = base_water # Cần tưới toàn bộ
+                new_water = base_water
                 new_time = base_time
             elif avg_moisture > MOISTURE_MAX_THRESHOLD:
                 new_status = "hydrated"
                 new_progress = 100
                 new_water = 0
                 new_time = 0
-            else: # Trong ngưỡng
+            else:
                 new_status = "hydrated"
-                # Logic mới: Tiến độ dựa trên độ ẩm hiện tại so với ngưỡng tối đa
-                new_progress = int((avg_moisture / MOISTURE_MAX_THRESHOLD) * 100)
-                new_progress = max(0, min(100, new_progress)) # Đảm bảo trong khoảng 0-100
-                
+                new_progress = int(
+                    (avg_moisture / MOISTURE_MAX_THRESHOLD) * 100)
+                new_progress = max(0, min(100, new_progress))
+
                 remaining_factor = 1.0 - (new_progress / 100.0)
                 new_water = round(base_water * remaining_factor, 1)
                 new_time = round(base_time * remaining_factor, 1)
 
-            # Cập nhật nếu có thay đổi
             update_data = {
                 "status": new_status,
                 "progress": new_progress,
@@ -151,77 +132,86 @@ def run_field_update(user_email: str):
                 "time_needed": new_time,
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
-            
+
             try:
-                db.update_user_field(field.get('id'), user_email, update_data)
+                db.update("fields", {"id": field.get('id')}, update_data)
                 updated_count += 1
             except Exception as e:
-                logger.error(f"Lỗi khi cập nhật field {field.get('id')}: {e}")
-                
+                logger.error(f"Lỗi khi cập nhật vườn {field.get('id')}: {e}")
+
     return updated_count
 
-# ========================================
-# HÀM EDIT MODAL (ĐÃ SỬA LỖI)
-# ========================================
-# SỬA LỖI: Dùng @st.dialog làm decorator
+
 @st.dialog("✏️ Chỉnh sửa thông tin Vườn")
 def render_edit_modal(field, all_crops):
-    """Hiển thị dialog (cửa sổ) để chỉnh sửa thông tin field."""
-    
     with st.form("edit_field_form"):
         st.info(f"Bạn đang chỉnh sửa: **{field.get('name')}**")
-        
-        # Lấy giá trị hiện tại
+
         current_name = field.get('name', '')
-        current_crop = field.get('crop', 'Rice')
-        current_stage = field.get('stage', 'Seedling')
+        current_crop = field.get('crop', 'Lúa')
+        current_stage = field.get('stage', 'Ươm')
         current_status = field.get('status', 'hydrated')
         current_progress = field.get('progress', 0)
 
-        # --- Input fields ---
-        new_name = st.text_input("Tên Vườn (Field Name)", value=current_name)
-        
+        new_name = st.text_input("Tên Vườn", value=current_name)
+
         col1, col2 = st.columns(2)
         with col1:
-            # Crop selection
             CROP_OPTIONS = all_crops
             try:
                 crop_index = CROP_OPTIONS.index(current_crop)
             except ValueError:
-                CROP_OPTIONS.append(current_crop) 
+                CROP_OPTIONS.append(current_crop)
                 crop_index = CROP_OPTIONS.index(current_crop)
-            new_crop = st.selectbox("Loại Cây Trồng (Crop Type)", options=CROP_OPTIONS, index=crop_index)
+            new_crop = st.selectbox(
+                "Loại Cây Trồng",
+                options=CROP_OPTIONS,
+                index=crop_index)
 
-            # Status selection
             STATUS_OPTIONS = ['hydrated', 'dehydrated', 'severely_dehydrated']
             try:
                 status_index = STATUS_OPTIONS.index(current_status)
             except ValueError:
                 status_index = 0
-            new_status = st.selectbox("Trạng thái tưới (Hydration Status)", options=STATUS_OPTIONS, index=status_index,
-                                        help="Ghi đè thủ công trạng thái tưới.")
+            new_status = st.selectbox(
+                "Trạng thái tưới",
+                options=STATUS_OPTIONS,
+                index=status_index,
+                help="Ghi đè thủ công trạng thái tưới.")
         with col2:
-            # Stage selection
-            STAGE_OPTIONS = ["Seedling", "Vegetative", "Flowering", "Fruiting", "Maturity"]
+            STAGE_OPTIONS = [
+                "Ươm",
+                "Phát triển",
+                "Ra hoa",
+                "Ra quả",
+                "Trưởng thành"]
             try:
                 stage_index = STAGE_OPTIONS.index(current_stage)
             except ValueError:
-                stage_index = 0 
-            new_stage = st.selectbox("Giai Đoạn (Growth Stage)", options=STAGE_OPTIONS, index=stage_index)
+                stage_index = 0
+            new_stage = st.selectbox(
+                "Giai Đoạn",
+                options=STAGE_OPTIONS,
+                index=stage_index)
 
-            # Progress override
-            new_progress = st.slider("Ghi đè Tiến độ tưới (%)", 0, 100, int(current_progress), help="Ghi đè thủ công tiến độ tưới của vườn.")
+            new_progress = st.slider("Ghi đè Tiến độ tưới (%)", 0, 100, int(
+                current_progress), help="Ghi đè thủ công tiến độ tưới của vườn.")
 
         st.markdown("---")
-        
-        # --- Form submission ---
+
         col_save, col_cancel = st.columns(2)
         with col_save:
-            if st.form_submit_button("💾 Lưu thay đổi", type="primary", use_container_width=True):
-                # Tính toán lại water/time dựa trên progress mới
-                base_water = field.get('base_today_water', field.get('today_water', 0))
-                base_time = field.get('base_time_needed', field.get('time_needed', 0))
-                
+            if st.form_submit_button(
+                "💾 Lưu thay đổi",
+                type="primary",
+                    use_container_width=True):
+                base_water = field.get(
+                    'base_today_water', field.get(
+                        'today_water', 0))
+                base_time = field.get(
+                    'base_time_needed', field.get(
+                        'time_needed', 0))
+
                 remaining_factor = 1.0 - (new_progress / 100.0)
                 recalculated_water = round(base_water * remaining_factor, 1)
                 recalculated_time = round(base_time * remaining_factor, 1)
@@ -236,12 +226,14 @@ def render_edit_modal(field, all_crops):
                     "time_needed": recalculated_time,
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
-                
+
                 try:
-                    if db.update_user_field(field.get('id'), field.get('user_email'), update_data):
+                    if db.update(
+                        "fields", {
+                            "id": field.get('id')}, update_data):
                         st.success("Cập nhật vườn thành công!")
                         st.session_state.editing_field = None
-                        get_field_data.clear() 
+                        get_field_data.clear()
                         st.rerun()
                     else:
                         st.error("Lỗi: Không thể cập nhật vườn trong DB.")
@@ -253,24 +245,19 @@ def render_edit_modal(field, all_crops):
                 st.session_state.editing_field = None
                 st.rerun()
 
-# ========================================
-# HÀM RENDER CHÍNH (Đã sửa)
-# ========================================
+
 def render_fields():
-    
     if not (hasattr(st, 'user') and st.user.email):
-        st.error("Vui lòng đăng nhập để xem fields")
+        st.error("Vui lòng đăng nhập để xem các vườn")
         return
-    
-    # Tải dữ liệu
+
     fields, hydration_jobs = get_field_data(st.user.email)
-    all_crops = get_available_crops(st.user.email) 
-    
+    all_crops = get_available_crops()
+
     st.session_state.fields = fields
-    
-    # Header Cards (Sử dụng dữ liệu động từ get_field_data)
+
     with st.container(border=True):
-        st.markdown("### 💧 Hydration Jobs")
+        st.markdown("### 💧 Tiến độ tưới")
         st.markdown("Cùng theo dõi tiến độ tưới nước hôm nay nhé:")
         box_css = """
             <div style="border: 2px solid {color}; border-radius: 10px; padding: 12px; text-align: center; margin-bottom: 10px;">
@@ -280,76 +267,88 @@ def render_fields():
         """
         cols = st.columns(3)
         with cols[0]:
-            st.markdown(box_css.format(label="✅ Completed", value=hydration_jobs['completed'], color="#2e7d32"), unsafe_allow_html=True)
+            st.markdown(
+                box_css.format(
+                    label="✅ Hoàn thành",
+                    value=hydration_jobs['completed'],
+                    color="#2e7d32"),
+                unsafe_allow_html=True)
         with cols[1]:
-            st.markdown(box_css.format(label="🚿 Active", value=hydration_jobs['active'], color="#0277bd"), unsafe_allow_html=True)
+            st.markdown(
+                box_css.format(
+                    label="🚿 Đang hoạt động",
+                    value=hydration_jobs['active'],
+                    color="#0277bd"),
+                unsafe_allow_html=True)
         with cols[2]:
-            st.markdown(box_css.format(label="⏳ Remaining", value=hydration_jobs['remaining'], color="#f57c00"), unsafe_allow_html=True)
+            st.markdown(
+                box_css.format(
+                    label="⏳ Chờ xử lý",
+                    value=hydration_jobs['remaining'],
+                    color="#f57c00"),
+                unsafe_allow_html=True)
 
-    
-    # All Fields
     col_title, col_add, col_update = st.columns([3, 1, 2])
     with col_title:
-        st.subheader("All Fields")
+        st.subheader("Tất cả các vườn")
     with col_add:
-        if st.button("➕ Add Field", type="primary", use_container_width=True):
+        if st.button("➕ Thêm vườn", type="primary", use_container_width=True):
             st.session_state.navigate_to = "Add Field"
             st.rerun()
     with col_update:
-        # NÚT CẬP NHẬT MỚI
-        if st.button("🔄 Cập nhật Trạng thái (Lưu vào DB)", use_container_width=True):
+        if st.button(
+            "🔄 Cập nhật Trạng thái (Lưu vào DB)",
+                use_container_width=True):
             with st.spinner("Đang tính toán và cập nhật trạng thái từ cảm biến..."):
                 num_updated = run_field_update(st.user.email)
                 get_field_data.clear()
                 st.success(f"Đã cập nhật {num_updated} vườn.")
                 st.rerun()
 
-    
     if fields:
-        st.info(f"📊 Bạn có {len(fields)} field(s)")
+        st.info(f"📊 Bạn có {len(fields)} vườn")
     else:
-        st.info("🌱 Bạn chưa có field nào. Hãy thêm field đầu tiên!")
-        st.markdown("👉 **Click nút 'Add Field' ở trên để tạo field mới**")
+        st.info("🌱 Bạn chưa có vườn nào. Hãy thêm vườn đầu tiên!")
+        st.markdown("👉 **Nhấn nút 'Thêm vườn' ở trên để tạo vườn mới**")
         return
-    
-    search_query = st.text_input("", placeholder="Search fields", label_visibility="collapsed")
-    
-    # Kích hoạt Dialog Edit
+
+    search_query = st.text_input("",
+                                 placeholder="Tìm kiếm vườn",
+                                 label_visibility="collapsed")
+
     if "editing_field" in st.session_state and st.session_state.editing_field:
         field_to_edit = st.session_state.editing_field
         render_edit_modal(field_to_edit, all_crops)
-        
+
     if search_query:
-        filtered_fields = [f for f in fields if search_query.lower() in f.get('name', '').lower() or search_query.lower() in f.get('crop', '').lower()]
+        filtered_fields = [
+            f for f in fields if search_query.lower() in f.get(
+                'name', '').lower() or search_query.lower() in f.get(
+                'crop', '').lower()]
     else:
         filtered_fields = fields
-    
+
     if not filtered_fields:
-        st.warning(f"Không tìm thấy field nào với từ khóa '{search_query}'")
+        st.warning(f"Không tìm thấy vườn nào với từ khóa '{search_query}'")
         return
-    
-    # --- Vòng lặp hiển thị danh sách (ĐÃ SỬA) ---
+
     for field in filtered_fields:
-        
-        # --- TÍNH TOÁN ĐỘNG CHO HIỂN THỊ ---
         live_stats = get_latest_telemetry_stats(st.user.email, field.get('id'))
-        
-        # Lấy giá trị DB làm mặc định
+
         display_status = field.get("status", "hydrated")
         display_water = field.get('today_water', 0)
         display_time = field.get('time_needed', 0)
         display_progress = field.get('progress', 0)
-        
+
         caption_text = "(Dữ liệu đã lưu)"
 
         if live_stats and live_stats.get("avg_moisture") is not None:
             avg_moisture = live_stats["avg_moisture"]
             rain_intensity = live_stats["rain_intensity"]
-            
-            # Lấy giá trị base để tính toán
+
             base_water = field.get('base_today_water', display_water)
             base_time = field.get('base_time_needed', display_time)
-            
+
             if rain_intensity > RAIN_THRESHOLD_MMH:
                 display_status = "hydrated"
                 display_progress = 100
@@ -358,83 +357,142 @@ def render_fields():
             elif avg_moisture < MOISTURE_MIN_THRESHOLD:
                 display_status = "dehydrated"
                 display_progress = 0
-                display_water = base_water # Hiển thị nước cần tưới toàn bộ
+                display_water = base_water
                 display_time = base_time
             elif avg_moisture > MOISTURE_MAX_THRESHOLD:
                 display_status = "hydrated"
                 display_progress = 100
                 display_water = 0
                 display_time = 0
-            else: # Trong ngưỡng
+            else:
                 display_status = "hydrated"
                 progress_range = MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD
                 current_progress = avg_moisture - MOISTURE_MIN_THRESHOLD
-                display_progress = int((current_progress / progress_range) * 100)
-                
+                display_progress = int(
+                    (current_progress / progress_range) * 100)
+
                 remaining_factor = 1.0 - (display_progress / 100.0)
                 display_water = round(base_water * remaining_factor, 1)
                 display_time = round(base_time * remaining_factor, 1)
-            
+
             try:
-                ts = datetime.fromisoformat(live_stats['timestamp']).strftime("%H:%M:%S")
+                ts = datetime.fromisoformat(
+                    live_stats['timestamp']).strftime("%H:%M:%S")
                 caption_text = f"(Live: {avg_moisture:.1f}% @ {ts})"
-            except:
+            except BaseException:
                 caption_text = f"(Live: {avg_moisture:.1f}%)"
-        
-        # --- Kết thúc tính toán động ---
-        
+
         status_colors = {
-            'hydrated': {'bg': '#d4edda', 'text': '#155724', 'overlay': 'green'},
-            'dehydrated': {'bg': '#fff3cd', 'text': '#856404', 'overlay': 'orange'},
-            'severely_dehydrated': {'bg': '#f8d7da', 'text': '#721c24', 'overlay': 'red'}
-        }
-        # Dùng display_status để chọn màu
-        color_info = status_colors.get(display_status, status_colors['hydrated'])
-        
+            'hydrated': {
+                'bg': '#d4edda',
+                'text': '#155724',
+                'overlay': 'green'},
+            'dehydrated': {
+                'bg': '#fff3cd',
+                'text': '#856404',
+                'overlay': 'orange'},
+            'severely_dehydrated': {
+                'bg': '#f8d7da',
+                'text': '#721c24',
+                'overlay': 'red'}}
+        color_info = status_colors.get(
+            display_status, status_colors['hydrated'])
+
         with st.container(border=True):
             cols = st.columns([2, 5, 2, 2])
-            
+
             with cols[0]:
                 if 'polygon' in field and field['polygon']:
-                    m = folium.Map(location=field.get('center', [20.45, 106.32]), zoom_start=16, 
-                                   tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", attr="EWI")
-                    folium.Polygon(locations=field['polygon'], color=color_info['overlay'], fill=True,
-                                   fill_color=color_info['overlay'], fill_opacity=0.5, weight=2).add_to(m)
-                    st_folium(m, width=200, height=150, returned_objects=[], key=f"map_{field.get('id', 'unknown')}")
+                    m = folium.Map(
+                        location=field.get(
+                            'center',
+                            [
+                                20.45,
+                                106.32]),
+                        zoom_start=16,
+                        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                        attr="EWI")
+                    folium.Polygon(
+                        locations=field['polygon'],
+                        color=color_info['overlay'],
+                        fill=True,
+                        fill_color=color_info['overlay'],
+                        fill_opacity=0.5,
+                        weight=2).add_to(m)
+                    st_folium(
+                        m,
+                        width=200,
+                        height=150,
+                        returned_objects=[],
+                        key=f"map_{
+                            field.get(
+                                'id',
+                                'unknown')}")
                 else:
-                    st.image("https.upload.wikimedia.org/wikipedia/commons/6/65/No-Image-Placeholder.svg", caption="No map available")
-            
+                    st.image(
+                        "https://upload.wikimedia.org/wikipedia/commons/6/65/No-Image-Placeholder.svg",
+                        caption="Không có bản đồ")
+
             with cols[1]:
-                st.markdown(f"**{field.get('name', 'Unnamed Field')}**  {field.get('area', 0):.2f} ha")
-                
-                # Dùng display_status cho badge
-                status_badge = f'<span style="background-color: {color_info["bg"]}; color: {color_info["text"]}; padding: 6px 12px; border-radius: 20px; font-weight: bold;">Crop Hydration  {display_status.title().replace("_", " ")}</span>'
+                st.markdown(
+                    f"**{field.get('name', 'Vườn không tên')}**  {field.get('area', 0):.2f} ha")
+
+                status_badge = f'<span style="background-color: {
+                    color_info["bg"]}; color: {
+                    color_info["text"]}; padding: 6px 12px; border-radius: 20px; font-weight: bold;">Trạng thái tưới  {
+                    display_status.title().replace(
+                        "_", " ")}</span>'
                 st.markdown(status_badge, unsafe_allow_html=True)
-                
-                # Dùng display_water
-                st.markdown(f"Today's Water  {display_water} m³ {caption_text}")
-                st.markdown(f"Crop: {field.get('crop', 'Unknown')} | Stage: {field.get('stage', 'Unknown')}")
-            
+
+                st.markdown(
+                    f"Nước tưới hôm nay  {display_water} m³ {caption_text}")
+                st.markdown(
+                    f"Cây trồng: {
+                        field.get(
+                            'crop',
+                            'Không xác định')} | Giai đoạn: {
+                        field.get(
+                            'stage',
+                            'Không xác định')}")
+
             with cols[2]:
-                st.markdown('<p style="text-align: right; color: #6c757d; font-size: 12px;">TIME NEEDED</p>', unsafe_allow_html=True)
-                # Dùng display_time
-                st.markdown(f'<p style="text-align: right; font-size: 18px; font-weight: bold;">{display_time} hours</p>', unsafe_allow_html=True)
-            
+                st.markdown(
+                    '<p style="text-align: right; color: #6c757d; font-size: 12px;">THỜI GIAN CẦN</p>',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    f'<p style="text-align: right; font-size: 18px; font-weight: bold;">{display_time} giờ</p>',
+                    unsafe_allow_html=True)
+
             with cols[3]:
-                st.markdown('<p style="text-align: right; color: #6c757d; font-size: 12px;">STATUS</p>', unsafe_allow_html=True)
-                # Dùng display_progress
-                st.markdown(render_progress(display_progress), unsafe_allow_html=True)
-                
+                st.markdown(
+                    '<p style="text-align: right; color: #6c757d; font-size: 12px;">TRẠNG THÁI</p>',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    render_progress(display_progress),
+                    unsafe_allow_html=True)
+
                 col_edit, col_delete = st.columns(2)
                 with col_edit:
-                    if st.button("✏️", key=f"edit_{field.get('id', 'unknown')}", help="Edit field"):
+                    if st.button(
+                        "✏️",
+                        key=f"edit_{
+                            field.get(
+                                'id',
+                                'unknown')}",
+                            help="Chỉnh sửa vườn"):
                         st.session_state.editing_field = field
-                        st.rerun() 
-                
+                        st.rerun()
+
                 with col_delete:
-                    if st.button("🗑️", key=f"delete_{field.get('id', 'unknown')}", help="Delete field"):
+                    if st.button(
+                        "🗑️",
+                        key=f"delete_{
+                            field.get(
+                                'id',
+                                'unknown')}",
+                            help="Xóa vườn"):
                         try:
-                            if db.delete_user_field(field.get('id', ''), st.user.email): 
+                            if db.delete("fields", {"id": field.get('id')}):
                                 st.success("Xóa vườn thành công!")
                                 get_field_data.clear()
                                 st.rerun()

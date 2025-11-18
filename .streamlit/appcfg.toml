@@ -1,0 +1,28 @@
+# TerraSync Application Configuration
+# This file contains adjustable parameters for the application.
+
+[app]
+author = "TerraSync Team"
+version = "1.0.0"
+
+[irrigation]
+# Thresholds for determining irrigation status based on soil moisture.
+moisture_min_threshold = 25.0  # Below this, status is 'dehydrated'
+moisture_max_threshold = 55.0  # Above this, status is 'hydrated'
+rain_threshold_mmh = 1.0       # Rain intensity (mm/h) above which irrigation is paused.
+autoirrigation_low_moisture_threshold = 30.0
+autoirrigation_high_moisture_threshold = 80.0
+
+[background_job]
+check_interval_seconds = 10
+
+[caching]
+# Time-to-live (in seconds) for cached data.
+telemetry_history_ttl = 300 # 5 minutes
+
+[api]
+aifield_url = "http://172.24.193.209:9990"
+request_timeout = 120
+max_image_bytes = 209715200 # 200MB
+openmeteo_url = "https://api.open-meteo.com/v1/forecast"
+iot_api_base_url = "http://127.0.0.1:8000"

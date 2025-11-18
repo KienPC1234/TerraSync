@@ -6,10 +6,12 @@
   ],
   "iot_api": [
     "python",
-    "iotAPI/main.py"
+    "-m",
+    "iotAPI.main"
   ],
   "background_job": [
     "python",
-    "untils/background_job.py"
+    "-m",
+    "untils.background_job"
   ]
 }
