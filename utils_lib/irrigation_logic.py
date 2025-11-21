@@ -1,4 +1,4 @@
-# untils/irrigation_logic.py
+# utils/irrigation_logic.py
 """
 Module for handling all irrigation-related calculations and logic.
 """
@@ -17,59 +17,6 @@ DEFAULT_ET0_MM_DAY = 4.5
 # Average irrigation system flow rate in m³/hour per hectare.
 # This is another assumption for calculating time.
 DEFAULT_FLOW_RATE_M3_H_HA = 5.0
-
-
-# --- Core Calculation ---
-
-def calculate_daily_water_needs(
-        field: dict,
-        et0_mm_day: float = DEFAULT_ET0_MM_DAY) -> dict:
-    """
-    Calculates the daily water requirement for a given field.
-
-    Args:
-        field (dict): The field document from the database.
-        et0_mm_day (float): Reference evapotranspiration for the day (mm/day).
-
-    Returns:
-        dict: A dictionary with 'today_water' (m³) and 'time_needed' (hours).
-    """
-    area_ha = field.get('area', 0)
-    kc = field.get('crop_coefficient', 1.0)
-    irr_eff = field.get('irrigation_efficiency', 85)
-
-    if area_ha <= 0:
-        return {"today_water": 0, "time_needed": 0}
-
-    # 1. Calculate Crop Evapotranspiration (ETc)
-    # ETc (mm/day) = Kc * ET0
-    etc_mm_day = kc * et0_mm_day
-
-    # 2. Calculate water volume needed by the crop
-    # Volume (Liters) = ETc (mm/day) * Area (m²)
-    area_m2 = area_ha * 10000
-    water_volume_liters = etc_mm_day * area_m2
-    water_volume_m3 = water_volume_liters / 1000
-
-    # 3. Adjust for irrigation system efficiency
-    # Actual water to apply = Water needed / (Efficiency / 100)
-    if irr_eff <= 0:
-        irr_eff = 85  # fallback
-
-    adjusted_water_m3 = water_volume_m3 / (irr_eff / 100.0)
-
-    # 4. Calculate irrigation time
-    # Time (hours) = Volume (m³) / Flow Rate (m³/hour)
-    total_flow_rate_m3_hr = DEFAULT_FLOW_RATE_M3_H_HA * area_ha
-    if total_flow_rate_m3_hr <= 0:
-        time_needed_hours = 0
-    else:
-        time_needed_hours = adjusted_water_m3 / total_flow_rate_m3_hr
-
-    return {
-        "today_water": round(adjusted_water_m3, 2),
-        "time_needed": round(time_needed_hours, 2)
-    }
 
 
 # --- Telemetry Helpers (Refactored from pages) ---

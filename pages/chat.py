@@ -216,20 +216,15 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
         if live_stats:
             live_context = "\n--- Ngữ cảnh Cảm biến (LIVE) ---\n"
             if live_stats.get("avg_moisture") is not None:
-                live_context += "Độ ẩm đất (TB): "
-                f"{live_stats['avg_moisture']:.1f}%\n"
+                live_context += f"Độ ẩm đất (TB): {live_stats['avg_moisture']:.1f}%\n"
             if live_stats.get("avg_soil_temp") is not None:
-                live_context += "Nhiệt độ đất (TB): "
-                f"{live_stats['avg_soil_temp']:.1f}°C\n"
+                live_context += f"Nhiệt độ đất (TB): {live_stats['avg_soil_temp']:.1f}°C\n"
             if live_stats.get("air_temp") is not None:
-                live_context += "Nhiệt độ không khí: "
-                f"{live_stats['air_temp']:.1f}°C\n"
+                live_context += f"Nhiệt độ không khí: {live_stats['air_temp']:.1f}°C\n"
             if live_stats.get("air_humidity") is not None:
-                live_context += "Độ ẩm không khí: "
-                f"{live_stats['air_humidity']:.1f}%\n"
+                live_context += f"Độ ẩm không khí: {live_stats['air_humidity']:.1f}%\n"
             if live_stats.get("rain_intensity") is not None:
-                live_context += "Lượng mưa: "
-                f"{live_stats['rain_intensity']:.1f} mm/h\n"
+                live_context += f"Lượng mưa: {live_stats['rain_intensity']:.1f} mm/h\n"
             try:
                 ts = datetime.fromisoformat(
                     live_stats['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
@@ -348,7 +343,7 @@ Tiến độ tưới (đã lưu): {field_data.get('progress', 0)}%
             with st.spinner("🤖 CropNet AI đang suy nghĩ..."):
                 try:
                     model = genai.GenerativeModel(
-                        "gemini-1.5-flash",
+                        "gemini-2.5-flash",
                         system_instruction=system_prompt,
                         generation_config=genai.types.GenerationConfig(
                             temperature=0.7, top_p=0.9, max_output_tokens=2048

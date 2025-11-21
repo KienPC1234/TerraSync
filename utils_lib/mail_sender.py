@@ -5,9 +5,9 @@ import streamlit as st
 
 # Lấy thông tin cấu hình từ Streamlit Secrets (an toàn hơn)
 smtp_config = st.secrets.get("smtp", {})
-SMTP_SERVER = smtp_config.get("server", "mail.fptoj.com")
+SMTP_SERVER = smtp_config.get("server", "")
 SMTP_PORT = smtp_config.get("port", 587)
-SENDER_EMAIL = smtp_config.get("email", "noreply@fptoj.com")
+SENDER_EMAIL = smtp_config.get("email", "")
 SENDER_PASSWORD = smtp_config.get("password")  # Sẽ là None nếu không có
 
 

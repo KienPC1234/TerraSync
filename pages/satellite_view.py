@@ -84,7 +84,7 @@ def render_satellite_view():
 
     tab1, tab2, tab3 = st.tabs(["🗺️ Bản đồ vệ tinh",
                                 "📊 Phân tích NDVI",
-                                "🌤️ Lớp phủ thời tiết"])
+                                "🌤️ Dự báo thời tiết"])
 
     with tab1:
         render_satellite_map()
@@ -169,10 +169,14 @@ def render_satellite_map():
                             api_res["upscaled_image_base64"])
                         product_info = api_res.get("product_info", {})
                         acq_date = product_info.get(
-                            "acquisition_date",
-                            product_info.get("title", "Ngày không xác định"))
+                            "date",
+                            "Ngày không xác định")
+                        product_name = product_info.get(
+                            "name",
+                            "Không xác định")
                         caption = (
                             f"Ảnh vệ tinh Sentinel-2 (AI Upscaled).\n"
+                            f"Tên sản phẩm (từ Sentinel-2): {product_name}\n"
                             f"Dữ liệu được chụp: {acq_date}"
                         )
                         st.image(Image.open(io.BytesIO(image_bytes)),

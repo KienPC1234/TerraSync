@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import os
-from database import db
+from database import db, crop_db
 from datetime import datetime
 
 
@@ -11,7 +11,12 @@ def render_help_center():
         "Nhận trợ giúp về TerraSync IoT và tìm câu trả lời cho các câu hỏi "
         "thường gặp")
 
-    tabs_list = ["💬 Trợ lý AI", "📚 Tài liệu", "🔧 Xử lý sự cố", "📞 Liên hệ Hỗ trợ"]
+    tabs_list = [
+        "💬 Trợ lý AI",
+        "📚 Tài liệu",
+        "🌾 Thư viện cây trồng",
+        "🔧 Xử lý sự cố",
+        "📞 Liên hệ Hỗ trợ"]
     tabs = st.tabs(tabs_list)
 
     with tabs[0]:
@@ -19,8 +24,10 @@ def render_help_center():
     with tabs[1]:
         render_documentation()
     with tabs[2]:
-        render_troubleshooting()
+        render_crop_library()
     with tabs[3]:
+        render_troubleshooting()
+    with tabs[4]:
         render_contact_support()
 
 
@@ -210,6 +217,150 @@ def render_documentation():
         - Phân tích NDVI cho sức khỏe thực vật
         - Loại bỏ mây và tăng cường hình ảnh
         """)
+
+
+def render_crop_library():
+    st.subheader("🌾 Thư viện cây trồng")
+    st.markdown(
+        "Khám phá các loại cây trồng được hỗ trợ trong hệ thống TerraSync và "
+        "các thông số chi tiết của chúng.")
+
+    crops = crop_db.get("crops")
+
+    if not crops:
+        st.warning("Không tìm thấy dữ liệu cây trồng.")
+        return
+
+    # Search bar
+    search_term = st.text_input("🔍 Tìm kiếm cây trồng...", "").lower()
+
+    filtered_crops = [
+        crop for crop in crops
+        if search_term in crop.get("name", "").lower()
+    ]
+
+    if not filtered_crops:
+        st.info(f"Không tìm thấy cây trồng nào với tên '{search_term}'.")
+
+    for crop in filtered_crops:
+        with st.expander(f"**{crop.get('name', 'N/A')}**"):
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                image_url = crop.get("image_url")
+                if not image_url:
+                    image_url = f"https://placehold.co/400x300/e2f0d9/5a7247?text={crop.get('call_name', 'crop').replace('_', '+')}"
+                st.image(
+                    image_url,
+                    caption=f"Ảnh minh họa cho {
+                        crop.get('name')}")
+
+            with col2:
+                st.markdown("##### Nhu cầu nước (Hệ số cây trồng - Kc)")
+                water_needs = crop.get('water_needs', {})
+                wn_cols = st.columns(4)
+                wn_cols[0].metric("Bắt đầu", water_needs.get('initial', 'N/A'))
+                wn_cols[1].metric(
+                    "Phát triển",
+                    water_needs.get(
+                        'development',
+                        'N/A'))
+                wn_cols[2].metric(
+                    "Giữa mùa",
+                    water_needs.get(
+                        'mid_season',
+                        'N/A'))
+                wn_cols[3].metric(
+                    "Cuối mùa",
+                    water_needs.get(
+                        'late_season',
+                        'N/A'))
+
+                st.markdown("##### Các giai đoạn sinh trưởng (Ngày)")
+                growth_stages = crop.get('growth_stages', {})
+                gs_cols = st.columns(4)
+                gs_cols[0].metric(
+                    "Bắt đầu", growth_stages.get(
+                        'initial', 'N/A'))
+                gs_cols[1].metric(
+                    "Phát triển",
+                    growth_stages.get(
+                        'development',
+                        'N/A'))
+                gs_cols[2].metric(
+                    "Giữa mùa",
+                    growth_stages.get(
+                        'mid_season',
+                        'N/A'))
+                gs_cols[3].metric(
+                    "Cuối mùa",
+                    growth_stages.get(
+                        'late_season',
+                        'N/A'))
+
+            st.markdown("##### Ngưỡng cảnh báo môi trường")
+            warnings = crop.get('warnings', {})
+            warn_cols = st.columns(2)
+            with warn_cols[0]:
+                nhiet_do = warnings.get('nhiet_do', {})
+                st.write(
+                    f"🌡️ **Nhiệt độ:** {
+                        nhiet_do.get(
+                            'min',
+                            'N/A')}°C - {
+                        nhiet_do.get(
+                            'max',
+                            'N/A')}°C")
+            with warn_cols[1]:
+                do_am = warnings.get('do_am', {})
+                st.write(
+                    f"💧 **Độ ẩm không khí:** {
+                        do_am.get(
+                            'min',
+                            'N/A')}% - {
+                        do_am.get(
+                            'max',
+                            'N/A')}%")
+
+    st.divider()
+
+    st.subheader("🌱 Yêu cầu thêm cây trồng mới")
+    st.markdown(
+        "Không tìm thấy cây trồng bạn cần? Gửi yêu cầu cho chúng tôi để được "
+        "thêm vào hệ thống.")
+
+    with st.form("new_crop_request_form"):
+        crop_name = st.text_input(
+            "Tên cây trồng bạn muốn thêm *",
+            help="Ví dụ: Dưa hấu, Cà rốt...")
+        crop_info = st.text_area(
+            "Thông tin chi tiết về cây trồng",
+            help="Cung cấp bất kỳ thông tin nào bạn biết, ví dụ: nhu cầu "
+            "nước, các giai đoạn phát triển, điều kiện lý tưởng, hoặc link "
+            "tham khảo.")
+
+        submitted = st.form_submit_button("📤 Gửi yêu cầu")
+
+        if submitted:
+            if not crop_name:
+                st.error("Vui lòng nhập tên cây trồng.")
+            else:
+                if hasattr(st, 'user') and st.user.is_logged_in:
+                    request_data = {
+                        "crop_name": crop_name,
+                        "crop_info": crop_info,
+                        "requested_by": st.user.email,
+                        "status": "pending",
+                        "timestamp": datetime.now().isoformat()}
+                    try:
+                        db.add("crop_requests", request_data)
+                        st.success(
+                            f"✅ Đã gửi yêu cầu cho '{crop_name}' thành công! "
+                            "Chúng tôi sẽ xem xét và cập nhật sớm nhất có "
+                            "thể.")
+                    except Exception as e:
+                        st.error(f"Lỗi khi gửi yêu cầu: {e}")
+                else:
+                    st.warning("Vui lòng đăng nhập để gửi yêu cầu.")
 
 
 def render_troubleshooting():

@@ -6,8 +6,6 @@ import time
 import threading
 import subprocess
 from pathlib import Path
-import webbrowser
-import toml
 from typing import Tuple, Dict, Any, Optional, List
 
 # --- Cấu hình hằng số ---
@@ -15,7 +13,6 @@ BASE_DIR = Path(__file__).resolve().parent
 LOG_DIR = BASE_DIR / 'logs'
 LOG_FILE = LOG_DIR / 'latest.log'
 CONFIG_FILE = BASE_DIR / 'multiprocess.json'
-PORTS_FILE = BASE_DIR / 'ports.toml'
 REQUIREMENTS_FILE = BASE_DIR / 'requirements.txt'
 
 MIN_PYTHON_VERSION = (3, 10)
@@ -79,28 +76,6 @@ def check_python_version():
         sys.exit(1)
     print(f"Phiên bản Python {current_version.major}.{current_version.minor} hợp lệ.")
 
-def check_and_install_dependencies():
-    """
-    Kiểm tra và cài đặt các thư viện cần thiết từ requirements.txt.
-    Sử dụng `pip install -r requirements.txt` trực tiếp để đảm bảo các gói được cài đặt/cập nhật.
-    """
-    if not REQUIREMENTS_FILE.exists():
-        print(f"Lỗi: Không tìm thấy file {REQUIREMENTS_FILE}.")
-        print("Vui lòng đảm bảo file tồn tại trong thư mục gốc của dự án.")
-        sys.exit(1)
-
-    print("Đang đồng bộ hóa các thư viện từ requirements.txt...")
-    try:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "-r", REQUIREMENTS_FILE],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE
-        )
-        print("Tất cả thư viện cần thiết đã được cài đặt/cập nhật.")
-    except subprocess.CalledProcessError as e:
-        print(f"Lỗi khi cài đặt thư viện:")
-        print(e.stderr.decode('utf-8', errors='replace'))
-        sys.exit(1)
 
 class ProcessManager:
     """
@@ -242,7 +217,6 @@ class ProcessManager:
         """Khởi chạy toàn bộ quy trình."""
         print_banner()
         check_python_version()
-        check_and_install_dependencies()
         
         signal.signal(signal.SIGINT, self.shutdown)
         signal.signal(signal.SIGTERM, self.shutdown)

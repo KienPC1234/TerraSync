@@ -16,7 +16,7 @@ from pages.iot_management import render_iot_management
 from pages.ai_field_detection import render_ai_field_detection
 from pages.satellite_view import render_satellite_view
 from pages.add_field import render_add_field
-from utils import (
+from utils_lib import (
     fetch_alerts,
     fetch_history,
     fetch_latest_telemetry,
@@ -241,7 +241,7 @@ with st.sidebar:
 # -----------------------------
 # ✅ Header Section
 # -----------------------------
-def render_top_section(location="Paso Robles Farm", Page_Title=""):
+def render_top_section(location="", Page_Title=""):
 
     user_data = db.get_user_by_email(st.user.email)
     fname = user_data.get('organization', '')

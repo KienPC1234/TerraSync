@@ -3,6 +3,7 @@
     {
       "name": "Cà Chua",
       "call_name": "tomato",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Bright_red_tomato_and_cross_section02.jpg/800px-Bright_red_tomato_and_cross_section02.jpg",
       "water_needs": {
         "initial": 0.6,
         "development": 0.8,
@@ -29,6 +30,7 @@
     {
       "name": "Xà Lách",
       "call_name": "lettuce",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/X%C3%A0_l%C3%A1ch.jpg/500px-X%C3%A0_l%C3%A1ch.jpg",
       "water_needs": {
         "initial": 0.4,
         "development": 0.6,
@@ -55,6 +57,7 @@
     {
       "name": "Ngô",
       "call_name": "corn",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Corn_on_the_cob.jpg/800px-Corn_on_the_cob.jpg",
       "water_needs": {
         "initial": 0.4,
         "development": 0.8,
@@ -263,6 +266,7 @@
     {
       "name": "Lúa",
       "call_name": "rice",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Oryza_sativa_-_K%C3%B6hler%E2%80%93s_Medizinal-Pflanzen-103.jpg/800px-Oryza_sativa_-_K%C3%B6hler%E2%80%93s_Medizinal-Pflanzen-103.jpg",
       "water_needs": {
         "initial": 1.2,
         "development": 1.2,

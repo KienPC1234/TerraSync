@@ -11,19 +11,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # --- ĐÃ THAY ĐỔI: Import send_email thay vì send_push_notification ---
 try:
-    from mail_sender import send_email
+    from utils_lib.mail_sender import send_email
 except ImportError:
     print(
-        "Cảnh báo: Không thể import 'utils.email_sender'. "
         "Chức năng email sẽ không hoạt động.")
     # Tạo hàm giả để code không bị lỗi
-
-    def send_email(*args, **kwargs):
-        print(
-            "Lỗi: send_email chưa được cấu hình "
-            "(không tìm thấy utils/email_sender.py).")
-        return None
-# --- KẾT THÚC THAY ĐỔI ---
 
 
 # --- Tải cấu hình từ appcfg.toml ---

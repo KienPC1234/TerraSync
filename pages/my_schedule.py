@@ -257,8 +257,6 @@ def render_current_status(field, all_fields):
         st.write(f"**Diện tích:** {field.get('area', 0):.2f} ha")
         st.write(f"**Ngày thu hoạch:** {field.get('days_to_harvest', 'N/A')}")
 
-    st.divider()
-
     st.subheader("📈 Tổng quan Nhu cầu tưới (Tất cả các vườn)")
 
     if all_fields:
@@ -311,20 +309,42 @@ def render_forecast(field):
             soil_df['timestamp'] = pd.to_datetime(soil_df['timestamp'])
             soil_df = soil_df.sort_values(by='timestamp')
 
-            start_date = soil_df['timestamp'].min()
-            soil_df['days'] = (soil_df['timestamp'] -
-                               start_date).dt.total_seconds() / (24 * 3600)
+            # Use data from the last 14 days for a more relevant trend
+            last_timestamp = soil_df['timestamp'].max()
+            fourteen_days_ago = last_timestamp - timedelta(days=14)
+            model_df = soil_df[soil_df['timestamp'] >= fourteen_days_ago].copy()
 
-            X = soil_df[['days']]
-            y = soil_df['Value']
+            # Fallback to all data if recent data is insufficient
+            if len(model_df) < 2:
+                st.warning(
+                    "Không có đủ dữ liệu trong 14 ngày qua. Sử dụng tất cả dữ liệu lịch sử để dự báo.")
+                model_df = soil_df.copy()
+
+            # Using .loc to avoid SettingWithCopyWarning
+            model_df.loc[:, 'days'] = (
+                model_df['timestamp'] -
+                model_df['timestamp'].min()).dt.total_seconds() / (
+                24 *
+                3600)
+
+            X_train = model_df[['days']]
+            y_train = model_df['Value']
 
             model = LinearRegression()
-            model.fit(X, y)
+            model.fit(X_train, y_train)
 
-            last_day = X['days'].max()
-            future_days = np.arange(last_day + 1, last_day + 8).reshape(-1, 1)
+            # Predict for the next 7 days from the last data point
+            days_since_start = (
+                last_timestamp - model_df['timestamp'].min()).total_seconds() / (
+                24 * 3600)
+            future_day_numbers = np.arange(
+                days_since_start + 1,
+                days_since_start + 8).reshape(-1, 1)
 
-            future_predictions = model.predict(future_days)
+            # Fix for sklearn warning: pass a DataFrame with feature names
+            future_days_df = pd.DataFrame(
+                future_day_numbers, columns=['days'])
+            future_predictions = model.predict(future_days_df)
 
             base_water = field.get('base_today_water', 0)
             if base_water == 0:
@@ -339,14 +359,19 @@ def render_forecast(field):
                 elif moisture <= MOISTURE_MIN_THRESHOLD:
                     needed = base_water
                 else:
-                    needed = base_water * \
-                        (1 - (moisture - MOISTURE_MIN_THRESHOLD) / (MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD))
+                    # Inverse linear interpolation
+                    needed = base_water * (
+                        1 - (moisture - MOISTURE_MIN_THRESHOLD) /
+                        (MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD))
                 water_needs_forecast.append(max(0, needed))
 
+            # Simpler and more robust way to calculate future dates
             future_dates = [
-                start_date +
+                last_timestamp +
                 timedelta(
-                    days=d) for d in future_days.flatten()]
+                    days=i) for i in range(
+                    1,
+                    8)]
             forecast_df = pd.DataFrame(
                 {'Date': future_dates, 'Lượng nước dự báo (m³)': water_needs_forecast})
 
