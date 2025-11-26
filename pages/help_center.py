@@ -60,7 +60,7 @@ def render_ai_assistant():
         return
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
     if 'help_messages' not in st.session_state:
         st.session_state.help_messages = []

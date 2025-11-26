@@ -5,7 +5,7 @@ import pandas as pd
 import altair as alt
 import logging
 from database import db
-from utils import check_warnings
+from utils import check_warnings, calculate_days_to_harvest
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +203,7 @@ def render_dashboard():
                     None)
 
                 if farm_data:
+                    days_to_harvest = calculate_days_to_harvest(farm_data)
                     col1, col2 = st.columns(2)
                     with col1:
                         st.metric(
@@ -213,7 +214,7 @@ def render_dashboard():
                             f"{farm_data.get('area', 0):.2f} ha")
                         st.metric(
                             "⏳ Ngày thu hoạch",
-                            f"{farm_data.get('days_to_harvest', 'N/A')} ngày")
+                            f"{days_to_harvest} ngày" if days_to_harvest is not None else "N/A")
 
                     with col2:
                         st.metric(

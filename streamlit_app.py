@@ -16,7 +16,7 @@ from pages.iot_management import render_iot_management
 from pages.ai_field_detection import render_ai_field_detection
 from pages.satellite_view import render_satellite_view
 from pages.add_field import render_add_field
-from utils_lib import (
+from utils import (
     fetch_alerts,
     fetch_history,
     fetch_latest_telemetry,

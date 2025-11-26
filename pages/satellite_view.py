@@ -3,15 +3,20 @@ import folium
 from streamlit_folium import folium_static
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 from PIL import Image, ImageDraw
 import io
 import base64
-from database import db
-from utils import fetch_forecast
 import pandas as pd
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+import plotly.express as px
+import matplotlib.pyplot as plt
+from matplotlib import cm, colors
+
+# Giả lập database/utils nếu bạn chạy độc lập, hãy giữ nguyên import của bạn
+from database import db
+from utils import fetch_forecast, get_weather_recommendation
 
 try:
     import numpy as np
@@ -19,44 +24,100 @@ try:
     from matplotlib import cm
     from matplotlib.colors import Normalize
 except ImportError:
-    st.error("Lỗi: Không tìm thấy thư viện. Vui lòng chạy: "
-             "pip install rasterio numpy matplotlib")
+    st.error("Lỗi: Thiếu thư viện xử lý ảnh. Vui lòng chạy: "
+             "pip install rasterio numpy matplotlib plotly pandas")
     st.stop()
 
 API_URL = "http://172.24.193.209:9990"
 
+WMO_WEATHER_CODES = {
+    0: ("☀️", "Trời quang"), 1: ("🌤️", "Nắng nhẹ"), 2: ("⛅", "Nhiều mây"), 3: ("☁️", "U ám"),
+    45: ("🌫️", "Sương mù"), 48: ("🌫️", "Sương mù dày"),
+    51: ("🌦️", "Mưa phùn nhẹ"), 53: ("🌦️", "Mưa phùn vừa"), 55: ("🌦️", "Mưa phùn dày"),
+    56: ("🌨️", "Mưa băng"), 57: ("🌨️", "Mưa băng dày"),
+    61: ("🌧️", "Mưa nhẹ"), 63: ("🌧️", "Mưa vừa"), 65: ("🌧️", "Mưa to"),
+    66: ("🌨️", "Mưa tuyết"), 67: ("🌨️", "Mưa tuyết dày"),
+    71: ("❄️", "Tuyết rơi nhẹ"), 73: ("❄️", "Tuyết rơi vừa"), 75: ("❄️", "Tuyết rơi dày"),
+    77: ("❄️", "Hạt tuyết"),
+    80: ("⛈️", "Mưa rào nhẹ"), 81: ("⛈️", "Mưa rào vừa"), 82: ("⛈️", "Mưa rào to"),
+    85: ("🌨️", "Tuyết"), 86: ("🌨️", "Tuyết nhiều"),
+    95: ("🌩️", "Dông"), 96: ("🌩️", "Dông mưa đá nhẹ"), 99: ("🌩️", "Dông mưa đá mạnh")
+}
 
-def convert_ndvi_to_png(geotiff_bytes: bytes) -> bytes:
+
+# --- HELPER FUNCTIONS CHO XỬ LÝ ẢNH & DỮ LIỆU ---
+
+def process_ndvi_data(geotiff_bytes: bytes) -> Tuple[Image.Image, np.ndarray, float]:
+    """
+    Xử lý bytes GeoTIFF để trả về:
+    1. Ảnh PNG màu (RGBA - có trong suốt) để hiển thị đẹp trên Web/App
+    2. Mảng Numpy thô (để vẽ biểu đồ/thống kê)
+    3. Giá trị NoData
+    """
     try:
         with MemoryFile(geotiff_bytes) as memfile:
             with memfile.open() as dataset:
-                ndvi_data = dataset.read(1).astype(np.float32)
-                ndvi_data[ndvi_data == dataset.nodata] = np.nan
+                # Đọc band 1
+                ndvi_data = dataset.read(1)
+                nodata_val = dataset.nodata
+                
+                # Chuyển sang float để tính toán
+                ndvi_float = ndvi_data.astype(np.float32)
 
-        norm = Normalize(vmin=-1, vmax=1)
-        colormap = cm.get_cmap('RdYlGn')
-        colored_data = colormap(norm(ndvi_data), bytes=True)
-        img = Image.fromarray(colored_data[:, :, :3], 'RGB')
+                # 1. Tạo Mask cho dữ liệu không hợp lệ (Nodata hoặc NaN)
+                if nodata_val is not None:
+                    # Mask những điểm là nodata
+                    mask = (ndvi_float == nodata_val) | np.isnan(ndvi_float)
+                else:
+                    mask = np.isnan(ndvi_float)
+                
+                # Gán NaN cho các vùng masked để không ảnh hưởng thống kê sau này
+                analysis_data = ndvi_float.copy()
+                analysis_data[mask] = np.nan
 
-        buf = io.BytesIO()
-        img.save(buf, format='PNG')
-        return buf.getvalue()
+                # 2. Chuẩn bị dữ liệu hiển thị (Visualization)
+                # Dữ liệu NDVI luôn nằm trong khoảng -1 đến 1
+                norm = colors.Normalize(vmin=-1.0, vmax=1.0)
+                
+                # Sử dụng colormap chuẩn cho NDVI: RdYlGn (Đỏ - Vàng - Xanh)
+                # Đỏ/Nâu: Đất trống/Cây yếu (-1 đến 0)
+                # Vàng: Cây mới lớn (0 đến 0.3)
+                # Xanh: Cây khỏe mạnh (0.3 đến 1)
+                cmap = plt.get_cmap('RdYlGn')
+
+                # Áp dụng colormap -> tạo ra mảng (H, W, 4) chứa RGBA (0-1 float hoặc 0-255 int)
+                # cmap(norm(data)) trả về giá trị RGBA float 0-1
+                # Chúng ta dùng masked array để matplotlib tự động xử lý vùng bad
+                masked_ndvi = np.ma.masked_where(mask, ndvi_float)
+                
+                # Chuyển đổi sang RGBA (bytes=True trả về 0-255 uint8)
+                rgba_img = cmap(norm(masked_ndvi), bytes=True) 
+
+                # 3. Xử lý trong suốt (Transparency)
+                # Tại những vị trí mask bị True (là nodata), gán Alpha (kênh 3) = 0
+                rgba_img[mask, 3] = 0
+
+                # Tạo ảnh PIL từ array RGBA
+                img = Image.fromarray(rgba_img, 'RGBA')
+                
+                return img, analysis_data, nodata_val
 
     except Exception as e:
-        print(f"Lỗi chuyển đổi NDVI TIFF: {e}")
-        img = Image.new('RGB', (300, 200), color='white')
-        d = ImageDraw.Draw(img)
-        d.text((10, 10), f"Lỗi xử lý NDVI TIFF:\n{e}", fill='red')
-        buf = io.BytesIO()
-        img.save(buf, format='PNG')
-        return buf.getvalue()
+        print(f"Lỗi xử lý dữ liệu NDVI: {e}")
+        # Trả về ảnh rỗng trong suốt nếu lỗi
+        return Image.new('RGBA', (100, 100), (0, 0, 0, 0)), np.array([]), 0
 
+def classify_ndvi(value):
+    """Phân loại sức khỏe dựa trên chỉ số NDVI"""
+    if np.isnan(value): return "Không xác định"
+    if value < 0.1: return "Đất trống / Nước"
+    if value < 0.2: return "Thực vật rất thưa / Căng thẳng"
+    if value < 0.4: return "Thực vật thưa / Đang phát triển"
+    if value < 0.6: return "Sức khỏe trung bình"
+    return "Sức khỏe rất tốt / Dày đặc"
 
-def process_satellite_imagery(lat: float, lon: float,
-                              polygon: List[List[float]] = None
-                              ) -> Dict[str, Any]:
+def process_satellite_imagery(lat: float, lon: float, polygon: List[List[float]] = None) -> Dict[str, Any]:
     coords = []
-
     if polygon is None or len(polygon) < 3:
         side = 0.001
         min_lat, max_lat = lat - side / 2, lat + side / 2
@@ -76,15 +137,36 @@ def process_satellite_imagery(lat: float, lon: float,
     except requests.exceptions.RequestException as e:
         return {"status": "error", "message": f"Lỗi API: {e}"}
 
+# --- GIAO DIỆN CHÍNH ---
 
 def render_satellite_view():
-    st.title("🛰️ Chế độ xem Vệ tinh & Viễn thám")
-    st.markdown("Xem ruộng của bạn từ không gian với ảnh vệ tinh "
-                "Sentinel-2 và AI.")
+    st.title("🛰️ Giám Sát Mùa Màng Thông Minh")
+    st.markdown("Theo dõi sức khỏe cây trồng từ vệ tinh Sentinel-2 kết hợp AI Deep Learning.")
 
-    tab1, tab2, tab3 = st.tabs(["🗺️ Bản đồ vệ tinh",
-                                "📊 Phân tích NDVI",
-                                "🌤️ Dự báo thời tiết"])
+    # CSS tùy chỉnh để làm đẹp các metrics
+    st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] {
+        font-size: 24px;
+        color: #006400;
+    }
+    .daily-forecast {
+        text-align: center;
+    }
+    .day-name {
+        font-weight: bold;
+        font-size: 1.1em;
+    }
+    .weather-icon {
+        font-size: 2.5em;
+        line-height: 1;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    tab1, tab2, tab3 = st.tabs(["🗺️ Bản đồ & Ảnh Vệ Tinh", 
+                                "📈 Phân Tích Sức Khỏe (NDVI)", 
+                                "🌤️ Thời Tiết & Khuyến Nghị"])
 
     with tab1:
         render_satellite_map()
@@ -93,230 +175,267 @@ def render_satellite_view():
     with tab3:
         render_weather_overlay()
 
-
 def render_satellite_map():
-    st.subheader("🗺️ Bản đồ vệ tinh tương tác")
+    st.subheader("🗺️ Vị trí & Thu thập dữ liệu")
 
     if hasattr(st, 'user') and st.user.is_logged_in:
         user_fields = db.get("fields", {"user_email": st.user.email})
     else:
+        # Mock data để test nếu chưa login
         user_fields = []
 
     if not user_fields:
-        st.warning("Không tìm thấy vườn nào. Vui lòng thêm vườn trước.")
+        st.warning("⚠️ Bạn chưa có vườn nào. Vui lòng thêm vườn trong phần quản lý.")
         return
 
-    field_options = {f"{field.get('name', 'Không tên')} "
-                     f"({field.get('crop', 'Không xác định')})": field
-                     for field in user_fields}
-    selected_field_name = st.selectbox("Chọn Vườn",
-                                       options=list(field_options.keys()))
-    selected_field = field_options[selected_field_name]
+    col_sel1, col_sel2 = st.columns([2, 1])
+    with col_sel1:
+        field_options = {f"{field.get('name', 'Không tên')} ({field.get('crop', 'Unknown')})": field for field in user_fields}
+        selected_field_name = st.selectbox("Chọn khu vực giám sát", options=list(field_options.keys()))
+        selected_field = field_options[selected_field_name]
 
-    center_lat = selected_field.get('center', [20.450123, 106.325678])[0]
-    center_lon = selected_field.get('center', [20.450123, 106.325678])[1]
+    center_lat = selected_field.get('center', [20.45, 106.32])[0]
+    center_lon = selected_field.get('center', [20.45, 106.32])[1]
 
-    m = folium.Map(
-        location=[
-            center_lat,
-            center_lon],
-        zoom_start=16,
-        tiles=None)
-    folium.TileLayer(tiles='OpenStreetMap', name='Vệ tinh',
-                     overlay=False, control=True).add_to(m)
+    # Hiển thị bản đồ
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=16, tiles='OpenStreetMap')
+    folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', 
+                     attr='Esri', name='Vệ tinh (Esri)').add_to(m)
+    
     if 'polygon' in selected_field:
         folium.Polygon(
             locations=selected_field['polygon'],
-            popup=(f"Vườn: {selected_field.get('name', 'Không tên')}<br>"
-                   f"Cây trồng: {selected_field.get('crop', 'Không xác định')}"
-                   f"<br>Diện tích: {selected_field.get('area', 0):.2f} ha"),
-            color='red', weight=3, fillColor='yellow', fillOpacity=0.3
+            popup=f"Diện tích: {selected_field.get('area', 0):.2f} ha",
+            color='#FFD700', weight=2, fill=True, fillOpacity=0.1
         ).add_to(m)
-    folium.Marker([center_lat, center_lon],
-                  popup=f"Tâm của {selected_field.get('name', 'Vườn')}",
-                  icon=folium.Icon(color='red', icon='info-sign')).add_to(m)
-    folium_static(m, width=800, height=500)
+    
+    folium_static(m, width=800, height=400)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Diện tích vườn", f"{selected_field.get('area', 0):.2f} ha")
-    with col2:
-        st.metric("Loại cây trồng",
-                  selected_field.get('crop', 'Không xác định'))
-    with col3:
-        st.metric("Tọa độ", f"{center_lat:.6f}, {center_lon:.6f}")
+    # Nút hành động
+    st.divider()
+    col_act1, col_act2 = st.columns([1, 2])
+    
+    with col_act1:
+        st.info("📡 **Dữ liệu trực tiếp**")
+        process_btn = st.button("🚀 Quét Vệ Tinh Ngay", type="primary", use_container_width=True)
+    
+    with col_act2:
+        st.write(f"**Khu vực:** {selected_field.get('name')} | **Cây trồng:** {selected_field.get('crop')}")
+        st.write("Hệ thống sẽ tìm ảnh rõ nét nhất (ít mây) trong 30 ngày qua.")
 
-    st.subheader("🤖 Xử lý vệ tinh bằng AI")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("Nhận ảnh vệ tinh **mới nhất** từ **Sentinel-2** "
-                    "của Cơ quan Vũ trụ Châu Âu (ESA).")
-        if st.button("🛰️ Xem ruộng của bạn từ không gian!", type="primary",
-                     help="Lấy ảnh mới nhất trong vòng 30 ngày qua"):
-            with st.spinner("🛰️ Đang kết nối với vệ tinh, tìm ảnh mới nhất..."):
-                result = process_satellite_imagery(
-                    center_lat, center_lon, selected_field.get('polygon'))
-
-                if result["status"] == "success":
-                    st.session_state.satellite_result = result
-                    st.success("✅ Đã tải và xử lý ảnh vệ tinh thành công!")
-
-                    api_res = result["api_result"]
-                    if "upscaled_image_base64" in api_res:
-                        image_bytes = base64.b64decode(
-                            api_res["upscaled_image_base64"])
-                        product_info = api_res.get("product_info", {})
-                        acq_date = product_info.get(
-                            "date",
-                            "Ngày không xác định")
-                        product_name = product_info.get(
-                            "name",
-                            "Không xác định")
-                        caption = (
-                            f"Ảnh vệ tinh Sentinel-2 (AI Upscaled).\n"
-                            f"Tên sản phẩm (từ Sentinel-2): {product_name}\n"
-                            f"Dữ liệu được chụp: {acq_date}"
-                        )
-                        st.image(Image.open(io.BytesIO(image_bytes)),
-                                 caption=caption, use_container_width=True)
-                else:
-                    st.error(f"❌ Xử lý thất bại: "
-                             f"{result.get('message', 'Lỗi không xác định')}")
-
-    with col2:
-        st.date_input("Chọn khoảng thời gian",
-                      value=(datetime.now() - timedelta(days=7),
-                             datetime.now()),
-                      max_value=datetime.now())
-        if st.button("📅 Lấy dữ liệu lịch sử"):
-            st.info("Dữ liệu vệ tinh lịch sử sẽ được lấy ở đây")
-
+    if process_btn:
+        with st.spinner("🛰️ Đang kết nối vệ tinh Sentinel-2 và xử lý AI... (Vui lòng chờ 10-20s)"):
+            result = process_satellite_imagery(center_lat, center_lon, selected_field.get('polygon'))
+            
+            if result["status"] == "success":
+                st.session_state.satellite_result = result
+                st.success("✅ Đã tải dữ liệu thành công! Chuyển sang tab 'Phân Tích Sức Khỏe' để xem chi tiết.")
+            else:
+                st.error(f"❌ Lỗi: {result.get('message')}")
 
 def render_ndvi_analysis():
-    st.subheader("📊 Phân tích NDVI (Chỉ số thực vật chênh lệch chuẩn hóa)")
-
+    st.header("📈 Phân Tích Chỉ Số Thực Vật (NDVI)")
+    
     if "satellite_result" not in st.session_state:
-        st.info("Vui lòng xử lý ảnh vệ tinh ở tab 🗺️ Bản đồ vệ tinh trước.")
+        st.info("👋 Vui lòng quay lại tab **Bản đồ** và nhấn nút **'Quét Vệ Tinh Ngay'** trước.")
         return
 
     result = st.session_state.satellite_result
     api_res = result.get("api_result", {})
+    
+    # Layout: Chia thành 2 cột chính
+    col_visual, col_stats = st.columns([1.2, 1])
 
-    st.subheader("🖼️ Ảnh màu thực AI Upscaled")
-    if "upscaled_image_base64" in api_res:
-        image_bytes = base64.b64decode(api_res["upscaled_image_base64"])
-        st.image(Image.open(io.BytesIO(image_bytes)),
-                 caption="Ảnh màu AI Upscaled (để so sánh)",
-                 use_container_width=True)
-    else:
-        st.warning("Không tìm thấy ảnh màu upscaled.")
-
-    st.subheader("🌱 Ảnh NDVI (Sức khỏe thực vật)")
-    if "ndvi_geotiff_base64" in api_res:
-        with st.spinner("Đang phân tích ảnh NDVI GeoTIFF..."):
-            try:
+    # --- CỘT TRÁI: HÌNH ẢNH ---
+    with col_visual:
+        st.subheader("👁️ Trực quan hóa")
+        tab_img1, tab_img2 = st.tabs(["🌱 Bản đồ NDVI", "📷 Ảnh Thực Tế"])
+        
+        ndvi_array = None
+        
+        with tab_img1:
+            if "ndvi_geotiff_base64" in api_res:
                 tiff_bytes = base64.b64decode(api_res["ndvi_geotiff_base64"])
-                png_bytes = convert_ndvi_to_png(tiff_bytes)
-                st.image(png_bytes,
-                         caption="Bản đồ NDVI (Đỏ = Đất trống/Nước, "
-                                 "Xanh = Thực vật khỏe mạnh)",
-                         use_container_width=True)
-                st.image("https://support.geoagro.com/wp-content/uploads/"
-                         "2021/04/en_NDVI-04.png",
-                         caption="Chú thích NDVI: -1 (Đỏ) đến +1 (Xanh lá)",
-                         width=300)
-            except Exception as e:
-                st.error(f"Không thể xử lý ảnh NDVI GeoTIFF: {e}")
-    else:
-        st.warning("Không tìm thấy dữ liệu NDVI GeoTIFF trong kết quả API.")
+                img_ndvi, ndvi_array, _ = process_ndvi_data(tiff_bytes)
+                st.image(img_ndvi, use_container_width=True, caption="Vùng xanh đậm: Cây khỏe mạnh")
+            else:
+                st.warning("Không có dữ liệu NDVI.")
+
+        with tab_img2:
+            if "upscaled_image_base64" in api_res:
+                rgb_bytes = base64.b64decode(api_res["upscaled_image_base64"])
+                st.image(Image.open(io.BytesIO(rgb_bytes)), use_container_width=True, caption="Ảnh màu thực (AI Upscaled)")
+            else:
+                st.warning("Không có ảnh màu.")
+
+    # --- CỘT PHẢI: SỐ LIỆU & BIỂU ĐỒ ---
+    with col_stats:
+        st.subheader("📊 Số liệu chi tiết")
+        
+        if ndvi_array is not None and ndvi_array.size > 0:
+            # 1. Tính toán thống kê
+            valid_ndvi = ndvi_array[~np.isnan(ndvi_array)]
+            avg_ndvi = np.mean(valid_ndvi)
+            max_ndvi = np.max(valid_ndvi)
+            
+            # Đánh giá tổng quan
+            health_status = "Rất tốt" if avg_ndvi > 0.6 else "Trung bình" if avg_ndvi > 0.4 else "Cần chú ý"
+            health_color = "green" if avg_ndvi > 0.6 else "orange" if avg_ndvi > 0.4 else "red"
+
+            # Hiển thị Metrics
+            m1, m2, m3 = st.columns(3)
+            m1.metric("NDVI Trung bình", f"{avg_ndvi:.2f}")
+            m2.metric("NDVI Cao nhất", f"{max_ndvi:.2f}")
+            m3.markdown(f"**Trạng thái:** :{health_color}[{health_status}]")
+
+            # 2. Phân loại diện tích (Histogram Data)
+            df_hist = pd.DataFrame({'NDVI': valid_ndvi})
+            
+            # Tạo phân loại cho Pie Chart
+            conditions = [
+                (df_hist['NDVI'] < 0.1),
+                (df_hist['NDVI'] >= 0.1) & (df_hist['NDVI'] < 0.4),
+                (df_hist['NDVI'] >= 0.4)
+            ]
+            choices = ['Đất trống/Nước', 'Cây thưa/Yếu', 'Cây khỏe mạnh']
+            df_hist['Category'] = np.select(conditions, choices, default='Không xác định')
+            
+            pie_data = df_hist['Category'].value_counts().reset_index()
+            pie_data.columns = ['Loại', 'Số lượng pixels']
+
+            # 3. Vẽ biểu đồ Pie Chart (Tỷ lệ diện tích)
+            fig_pie = px.pie(pie_data, values='Số lượng pixels', names='Loại', 
+                             title='Tỷ lệ phân bố sức khỏe',
+                             color='Loại',
+                             color_discrete_map={
+                                 'Đất trống/Nước': '#d62728',
+                                 'Cây thưa/Yếu': '#ff7f0e', 
+                                 'Cây khỏe mạnh': '#2ca02c'
+                             },
+                             hole=0.4)
+            fig_pie.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=250)
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+            # 4. Vẽ biểu đồ Histogram (Phân bố giá trị)
+            fig_hist = px.histogram(df_hist, x="NDVI", nbins=30, 
+                                    title="Phân bố chi tiết chỉ số NDVI",
+                                    labels={'NDVI': 'Giá trị NDVI'},
+                                    color_discrete_sequence=['#00CC96'])
+            fig_hist.add_vline(x=avg_ndvi, line_dash="dash", line_color="red", annotation_text="TB")
+            fig_hist.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=200, showlegend=False)
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+        else:
+            st.info("Đang chờ dữ liệu để phân tích...")
+
+    # --- PHẦN GIẢI THÍCH Ý NGHĨA ---
+    with st.expander("ℹ️ Hướng dẫn đọc chỉ số NDVI", expanded=False):
+        st.markdown("""
+        - **Dưới 0.1 (Màu đỏ/nâu):** Thường là đất trống, nước, bê tông hoặc cây đã chết.
+        - **0.2 - 0.4 (Màu vàng/cam):** Cây mới trồng, cây bụi thưa hoặc cây đang bị bệnh/thiếu nước.
+        - **0.5 - 0.8 (Màu xanh lá):** Cây trồng phát triển tốt, mật độ lá dày, quang hợp mạnh.
+        """)
+
+def render_daily_forecast(daily_df: pd.DataFrame):
+    st.subheader("🗓️ Dự báo tổng quan 7 ngày")
+    cols = st.columns(7)
+    for i, day in daily_df.iterrows():
+        with cols[i]:
+            with st.container(border=True):
+                day_name = day['time'].strftime('%a') # Mon, Tue
+                icon, desc = WMO_WEATHER_CODES.get(day['weather_code'], ("❓", "Không rõ"))
+                st.markdown(f"<div class='daily-forecast day-name'>{day_name}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='daily-forecast weather-icon'>{icon}</div>", unsafe_allow_html=True)
+                st.metric("Nhiệt độ", f"{int(day['temperature_2m_max'])}°C")
+                st.caption(f"Thấp: {int(day['temperature_2m_min'])}°C")
+                st.caption(f"Mưa: {day['precipitation_sum']:.1f} mm")
+
+
+def render_hourly_charts(hourly_df: pd.DataFrame):
+    st.subheader("📊 Biểu đồ chi tiết (48 giờ tới)")
+    df = hourly_df.head(48)
+
+    fig = make_subplots(
+        rows=3, cols=1, shared_xaxes=True,
+        subplot_titles=("Nhiệt độ & Độ ẩm", "Lượng mưa", "Sức gió"),
+        specs=[[{"secondary_y": True}], [{}], [{}]])
+
+    # Nhiệt độ & Độ ẩm
+    fig.add_trace(go.Scatter(x=df['time'], y=df['temperature_2m'], name="Nhiệt độ",
+                             line=dict(color='orange')), row=1, col=1, secondary_y=False)
+    fig.add_trace(go.Scatter(x=df['time'], y=df['apparent_temperature'], name="Nhiệt độ cảm nhận",
+                             line=dict(color='red', dash='dot')), row=1, col=1, secondary_y=False)
+    fig.add_trace(go.Scatter(x=df['time'], y=df['relative_humidity_2m'], name="Độ ẩm"),
+                  row=1, col=1, secondary_y=True)
+
+    # Lượng mưa
+    fig.add_trace(go.Bar(x=df['time'], y=df['precipitation'], name="Lượng mưa (mm)",
+                         marker_color='blue'), row=2, col=1)
+
+    # Sức gió
+    fig.add_trace(go.Scatter(x=df['time'], y=df['wind_speed_10m'], name="Tốc độ gió (km/h)",
+                              line=dict(color='gray')), row=3, col=1)
+
+    fig.update_layout(height=600, showlegend=False)
+    fig.update_yaxes(title_text="Nhiệt độ (°C)", row=1, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Độ ẩm (%)", row=1, col=1, secondary_y=True, range=[0, 100])
+    fig.update_yaxes(title_text="Lượng mưa (mm)", row=2, col=1)
+    fig.update_yaxes(title_text="Tốc độ gió (km/h)", row=3, col=1)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def render_weather_overlay():
-    st.subheader("🌤️ Lớp phủ thời tiết")
+    st.header("🌤️ Thời Tiết & Canh Tác Thông Minh")
 
-    if hasattr(st, 'user') and st.user.is_logged_in:
-        user_fields = db.get("fields", {"user_email": st.user.email})
-    else:
-        user_fields = []
+    if not (hasattr(st, 'user') and st.user.is_logged_in):
+        st.warning("⚠️ Vui lòng đăng nhập để sử dụng tính năng này.")
+        return
+        
+    user_fields = db.get("fields", {"user_email": st.user.email})
 
     if not user_fields:
-        st.warning("Không tìm thấy vườn nào. Vui lòng thêm vườn trước.")
+        st.warning("Vui lòng thêm một vườn trong phần Quản lý Vườn trước.")
         return
 
-    field_options = {f"{field.get('name', 'Không tên')} "
-                     f"({field.get('crop', 'Không xác định')})": field
-                     for field in user_fields}
-    selected_field_name = st.selectbox("Chọn Vườn cho Thời tiết",
-                                       options=list(field_options.keys()),
-                                       key="weather_field")
-    selected_field = field_options[selected_field_name]
+    field_options = {f"{field.get('name')}": field for field in user_fields}
+    selected_name = st.selectbox("Chọn khu vực để xem dự báo & nhận khuyến nghị:", list(field_options.keys()), key="w_select")
+    selected_field = field_options[selected_name]
+    
+    lat, lon = selected_field.get('center', [20.0, 105.0])
+    
+    # Reset states if field changes
+    field_id = selected_field.get('id')
+    if st.session_state.get('weather_field_id') != field_id:
+        st.session_state.pop('weather_data', None)
+        st.session_state.pop('ai_weather_recommendation', None)
+        st.session_state['weather_field_id'] = field_id
 
-    center_lat = selected_field.get('center', [20.450123, 106.325678])[0]
-    center_lon = selected_field.get('center', [20.450123, 106.325678])[1]
-
-    if st.button("🌤️ Lấy dự báo thời tiết"):
-        with st.spinner("Đang lấy dữ liệu thời tiết..."):
-            weather_data = fetch_forecast(center_lat, center_lon)
-
+    if st.button("🔄 Cập nhật Thời Tiết & Nhận Khuyến Nghị AI", type="primary", use_container_width=True):
+        with st.spinner("Đang tải dữ liệu khí tượng và phân tích AI..."):
+            weather_data = fetch_forecast(lat, lon)
             if weather_data:
                 st.session_state.weather_data = weather_data
-                st.success("✅ Đã lấy dữ liệu thời tiết!")
-                st.rerun()
+                # Force clear old recommendation to get a new one, but don't rerun
+                st.session_state.pop('ai_weather_recommendation', None) 
             else:
-                st.error("❌ Không thể lấy dữ liệu thời tiết")
+                st.error("Không thể tải được dữ liệu thời tiết. Vui lòng thử lại.")
 
     if "weather_data" in st.session_state:
-        weather = st.session_state.weather_data
-        df = pd.DataFrame(weather)
-        df['time'] = pd.to_datetime(df['time'])
+        weather_data = st.session_state.weather_data
+        
+        # Get AI recommendation if not already present
+        if 'ai_weather_recommendation' not in st.session_state:
+            with st.spinner("🤖 CropNet AI đang phân tích thời tiết..."):
+                recommendation = get_weather_recommendation(selected_field, weather_data)
+                st.session_state.ai_weather_recommendation = recommendation
+        
+        with st.expander("🤖 **Phân Tích & Khuyến Nghị từ CropNet AI**", expanded=True):
+            st.markdown(st.session_state.get('ai_weather_recommendation', "Không có khuyến nghị."))
 
-        st.subheader("📊 Dự báo thời tiết 7 ngày")
-
-        fig = make_subplots(rows=3, cols=1,
-                            subplot_titles=('Nhiệt độ (°C)',
-                                            'Lượng mưa (mm)',
-                                            'Tốc độ gió (m/s)'),
-                            vertical_spacing=0.1)
-
-        fig.add_trace(go.Scatter(x=df['time'], y=df['temperature'],
-                                 name='Nhiệt độ'), row=1, col=1)
-        fig.add_trace(go.Bar(x=df['time'], y=df['precipitation'],
-                             name='Lượng mưa'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df['time'], y=df['wind_speed'],
-                                 name='Tốc độ gió'), row=3, col=1)
-
-        fig.update_layout(height=600, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.subheader("💧 Khuyến nghị tưới tiêu")
-
-        total_precip = df['precipitation'].sum()
-        avg_temp = df['temperature'].mean()
-
-        if total_precip > 20:
-            st.info("🌧️ Dự kiến có mưa nhiều. Cân nhắc giảm tưới.")
-        elif total_precip < 5 and avg_temp > 30:
-            st.warning("☀️ Điều kiện nóng và khô. Cân nhắc tăng tưới.")
-        else:
-            st.success("✅ Điều kiện thời tiết bình thường. "
-                       "Tiếp tục lịch tưới tiêu thông thường.")
-
-        st.subheader("⚠️ Đánh giá rủi ro thời tiết")
-
-        risks = []
-        if df['wind_speed'].max() > 10:
-            risks.append("Tốc độ gió cao có thể ảnh hưởng đến hiệu quả tưới")
-        if df['temperature'].max() > 35:
-            risks.append("Nhiệt độ cao có thể làm tăng nhu cầu nước")
-        if total_precip > 30:
-            risks.append("Mưa lớn có thể gây ngập úng")
-
-        if risks:
-            for risk in risks:
-                st.warning(f"⚠️ {risk}")
-        else:
-            st.success("✅ Không phát hiện rủi ro thời tiết đáng kể")
-
-
+        st.divider()
+        
+        render_daily_forecast(weather_data['daily'])
+        
+        st.divider()
+        
+        render_hourly_charts(weather_data['hourly'])

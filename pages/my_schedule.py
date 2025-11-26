@@ -8,7 +8,7 @@ import toml
 from pathlib import Path
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from utils import get_latest_telemetry_stats, predict_water_needs
+from utils import get_latest_telemetry_stats, predict_water_needs, calculate_days_to_harvest
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,8 @@ def render_current_status(field, all_fields):
         st.write(f"**Giai đoạn:** {field.get('stage', 'N/A')}")
     with col_b:
         st.write(f"**Diện tích:** {field.get('area', 0):.2f} ha")
-        st.write(f"**Ngày thu hoạch:** {field.get('days_to_harvest', 'N/A')}")
+        days_to_harvest = calculate_days_to_harvest(field)
+        st.write(f"**Ngày thu hoạch:** {days_to_harvest} ngày" if days_to_harvest is not None else "N/A")
 
     st.subheader("📈 Tổng quan Nhu cầu tưới (Tất cả các vườn)")
 

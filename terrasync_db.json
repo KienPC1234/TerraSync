@@ -5,7 +5,7 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-11-19T07:21:24.041931",
-      "last_login": "2025-11-21T08:59:21.439621",
+      "last_login": "2025-11-26T08:02:19.775908",
       "is_active": true,
       "id": "fd195b21-da39-4fe1-8e19-d159d6a93040",
       "created_at": "2025-11-19T07:21:24.041975",
@@ -14,7 +14,7 @@
       "role": "Nông dân",
       "experience": "Trung cấp (1-5 năm)",
       "bio": "Test",
-      "updated_at": "2025-11-21T08:59:21.440498"
+      "updated_at": "2025-11-26T08:02:19.776684"
     }
   ],
   "fields": [
@@ -324,6 +324,608 @@
       },
       "id": "f668db87-630b-41dc-a392-4e8b744fa440",
       "created_at": "2025-11-21T08:17:11.820826"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:34:36+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 88.87,
+              "soil_temperature": 34.13
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 57.03,
+              "soil_temperature": 26.37
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 43.71,
+              "soil_temperature": 34.8
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 30.78,
+            "air_humidity": 78.9,
+            "rain_intensity": 0.0,
+            "wind_speed": 12.21,
+            "light_intensity": 485.3,
+            "barometric_pressure": 1013.3
+          }
+        }
+      },
+      "id": "160fddea-405e-4131-9e7e-0810fc22c18c",
+      "created_at": "2025-11-24T17:34:36.623847"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:35:15+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 82.4,
+              "soil_temperature": 28.28
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 80.3,
+              "soil_temperature": 33.43
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 78.21,
+              "soil_temperature": 29.64
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 25.57,
+            "air_humidity": 69.7,
+            "rain_intensity": 0.0,
+            "wind_speed": 6.49,
+            "light_intensity": 1395.9,
+            "barometric_pressure": 999.2
+          }
+        }
+      },
+      "id": "a29eb235-1f16-488a-8786-f5c306f8417e",
+      "created_at": "2025-11-24T17:35:16.265569"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:35:28+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 68.11,
+              "soil_temperature": 20.17
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 45.24,
+              "soil_temperature": 22.64
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 45.06,
+              "soil_temperature": 31.19
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 37.05,
+            "air_humidity": 80.9,
+            "rain_intensity": 1.0,
+            "wind_speed": 5.33,
+            "light_intensity": 1032.5,
+            "barometric_pressure": 992.4
+          }
+        }
+      },
+      "id": "3bf4855b-a2cb-4d34-87a7-d42ced14f4bd",
+      "created_at": "2025-11-24T17:35:28.423354"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:35:29+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 71.02,
+              "soil_temperature": 28.19
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 72.06,
+              "soil_temperature": 24.66
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 79.64,
+              "soil_temperature": 25.78
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 28.85,
+            "air_humidity": 82.6,
+            "rain_intensity": 1.0,
+            "wind_speed": 7.78,
+            "light_intensity": 2107.8,
+            "barometric_pressure": 995.0
+          }
+        }
+      },
+      "id": "6703b65d-f0af-4235-b09e-635535218e93",
+      "created_at": "2025-11-24T17:35:29.829460"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:36:15+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 77.52,
+              "soil_temperature": 28.48
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 87.8,
+              "soil_temperature": 27.42
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 43.92,
+              "soil_temperature": 34.01
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 31.1,
+            "air_humidity": 84.8,
+            "rain_intensity": 0.0,
+            "wind_speed": 6.6,
+            "light_intensity": 3721.7,
+            "barometric_pressure": 1004.5
+          }
+        }
+      },
+      "id": "8b152bfd-3bd2-4a18-8190-b6455b45a4d3",
+      "created_at": "2025-11-24T17:36:16.270036"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:37:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 88.39,
+              "soil_temperature": 24.32
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 86.02,
+              "soil_temperature": 27.3
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 53.02,
+              "soil_temperature": 31.41
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 31.1,
+            "air_humidity": 84.8,
+            "rain_intensity": 0.0,
+            "wind_speed": 6.6,
+            "light_intensity": 3721.7,
+            "barometric_pressure": 1004.5
+          }
+        }
+      },
+      "id": "da6e9260-8da9-4f54-ab6e-40510db4055a",
+      "created_at": "2025-11-24T17:37:16.310293"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:38:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 72.36,
+              "soil_temperature": 33.33
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 68.24,
+              "soil_temperature": 32.69
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 57.24,
+              "soil_temperature": 22.17
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 32.72,
+            "air_humidity": 82.2,
+            "rain_intensity": 0.0,
+            "wind_speed": 12.05,
+            "light_intensity": 860.9,
+            "barometric_pressure": 1002.5
+          }
+        }
+      },
+      "id": "9453880a-7cdb-4e3b-941f-c63248473a35",
+      "created_at": "2025-11-24T17:38:16.320860"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:39:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 61.82,
+              "soil_temperature": 29.47
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 59.67,
+              "soil_temperature": 23.71
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 86.88,
+              "soil_temperature": 20.91
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 29.22,
+            "air_humidity": 75.1,
+            "rain_intensity": 0.0,
+            "wind_speed": 8.12,
+            "light_intensity": 4330.5,
+            "barometric_pressure": 993.2
+          }
+        }
+      },
+      "id": "733e0828-7de1-48f5-b16c-a479ab570054",
+      "created_at": "2025-11-24T17:39:16.406774"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:40:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 79.13,
+              "soil_temperature": 23.5
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 79.04,
+              "soil_temperature": 22.57
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 43.26,
+              "soil_temperature": 29.22
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 31.15,
+            "air_humidity": 75.7,
+            "rain_intensity": 1.0,
+            "wind_speed": 9.58,
+            "light_intensity": 3920.8,
+            "barometric_pressure": 1009.1
+          }
+        }
+      },
+      "id": "60fcf078-7259-4908-b610-f7b2055ded86",
+      "created_at": "2025-11-24T17:40:16.408416"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:41:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 87.75,
+              "soil_temperature": 28.19
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 48.64,
+              "soil_temperature": 28.9
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 43.7,
+              "soil_temperature": 29.5
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 36.93,
+            "air_humidity": 90.0,
+            "rain_intensity": 0.0,
+            "wind_speed": 11.74,
+            "light_intensity": 4348.2,
+            "barometric_pressure": 1009.7
+          }
+        }
+      },
+      "id": "c197f026-1094-4cdc-8dc5-bf18ca76c086",
+      "created_at": "2025-11-24T17:41:16.457231"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:42:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 47.55,
+              "soil_temperature": 21.94
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 77.31,
+              "soil_temperature": 24.45
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 70.82,
+              "soil_temperature": 22.92
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 34.35,
+            "air_humidity": 85.1,
+            "rain_intensity": 1.0,
+            "wind_speed": 11.89,
+            "light_intensity": 938.1,
+            "barometric_pressure": 1003.2
+          }
+        }
+      },
+      "id": "769fdacb-ac37-49e7-97ed-f9d2479dca9a",
+      "created_at": "2025-11-24T17:42:16.490084"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:43:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 47.55,
+              "soil_temperature": 21.94
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 68.39,
+              "soil_temperature": 22.43
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 53.64,
+              "soil_temperature": 27.97
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 27.92,
+            "air_humidity": 93.3,
+            "rain_intensity": 0.0,
+            "wind_speed": 0.68,
+            "light_intensity": 140.4,
+            "barometric_pressure": 997.5
+          }
+        }
+      },
+      "id": "fd7be445-00da-445a-8c7c-e53eff2ef523",
+      "created_at": "2025-11-24T17:43:16.574618"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:44:16+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 57.95,
+              "soil_temperature": 25.63
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 56.07,
+              "soil_temperature": 26.12
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 83.38,
+              "soil_temperature": 27.28
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 36.36,
+            "air_humidity": 58.2,
+            "rain_intensity": 1.0,
+            "wind_speed": 6.46,
+            "light_intensity": 4240.3,
+            "barometric_pressure": 1000.9
+          }
+        }
+      },
+      "id": "7bc4a9c1-0098-4863-9264-d78cb4c4ee1e",
+      "created_at": "2025-11-24T17:44:16.639104"
+    },
+    {
+      "hub_id": "5ce2d506-9a8c-4625-ba5d-ec9f7d7e8c93",
+      "timestamp": "2025-11-24T10:44:36+00:00",
+      "location": null,
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil00001",
+            "sensors": {
+              "soil_moisture": 60.06,
+              "soil_temperature": 30.21
+            }
+          },
+          {
+            "node_id": "soil00002",
+            "sensors": {
+              "soil_moisture": 50.39,
+              "soil_temperature": 29.86
+            }
+          },
+          {
+            "node_id": "soil00003",
+            "sensors": {
+              "soil_moisture": 76.91,
+              "soil_temperature": 28.69
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm00001",
+          "sensors": {
+            "air_temperature": 31.02,
+            "air_humidity": 67.0,
+            "rain_intensity": 1.0,
+            "wind_speed": 1.27,
+            "light_intensity": 541.7,
+            "barometric_pressure": 993.8
+          }
+        }
+      },
+      "id": "bbbf8f46-6c38-48f9-9f12-bb2417ba6ac4",
+      "created_at": "2025-11-24T17:44:36.668196"
     }
   ],
   "chat_history": [],
