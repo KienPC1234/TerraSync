@@ -1,0 +1,2 @@
+cd MoPhong
+npm start

@@ -5,11 +5,56 @@ Quản lý database thống nhất cho toàn bộ ứng dụng
 """
 import json
 import os
+import uuid
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-import uuid
 from filelock import FileLock
+from pymongo import MongoClient
 
+
+class MongoDB:
+    PORT = 34278
+    URI = f"mongodb://localhost:{PORT}/"
+
+    def __init__(self, uri: str):
+        self.cli = MongoClient(uri)
+        self.db = self.cli["terrasync"]
+        self.collec = None
+
+    def __set_table(self, table: str):
+        if not self.collec or self.collec.name is not table:
+            self.collec = self.db[table]
+    
+    def add(self, table: str, data: Any | list[Any]) -> bool:
+        """Thêm một bản ghi vào một bảng một cách an toàn."""
+        self.__set_table(table)
+        
+        if isinstance(data, list):
+            for e in data:
+                if "id" not in e:
+                    e["id"] = str(uuid.uuid4())
+                if "created_at" not in e:
+                    e["created_at"] = datetime.now().isoformat()
+            self.collec.insert_many(data)
+        else:
+            self.collec.insert_one(data)
+
+        return True
+
+    def get(self, table: str, filter: Optional[dict] = None, count: int = 1):
+        self.__set_table(table)
+
+        find_func = self.collec.find_one if count == 1 else self.collec.find
+
+        if filter:
+            return find_func(filter)
+        else:
+            return find_func()
+        
+    def get_by_id(self, table: str, record_id: str):
+        """Lấy một bản ghi theo ID một cách an toàn."""
+        records = self.get(table, {"id": record_id})
+        return records[0] if records else None
 
 class JsonDB:
     """

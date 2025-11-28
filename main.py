@@ -5,6 +5,7 @@ import signal
 import time
 import threading
 import subprocess
+import atexit
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional, List
 
@@ -39,19 +40,19 @@ def print_banner():
     """In banner ASCII art với hiệu ứng màu sắc."""
     banner = r"""
 ▐▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▌
-▐  ███╗   ███╗ █████╗ ██╗  ██╗███████╗    ██████╗ ██╗   ██╗                   ▌
-▐  ████╗ ████║██╔══██╗██║ ██╔╝██╔════╝    ██╔══██╗╚██╗ ██╔╝                   ▌
-▐  ██╔████╔██║███████║█████╔╝ █████╗      ██████╔╝ ╚████╔╝                    ▌
-▐  ██║╚██╔╝██║██╔══██║██╔═██╗ ██╔══╝      ██╔══██╗  ╚██╔╝                     ▌
-▐  ██║ ╚═╝ ██║██║  ██║██║  ██╗███████╗    ██████╔╝   ██║                      ▌
-▐  ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝    ╚═════╝    ╚═╝                      ▌
-▐                                                                             ▌
-▐  ██╗  ██╗██╗███████╗███╗   ██╗██████╗  ██████╗ ██╗██████╗ ██████╗ ██╗  ██╗  ▌
-▐  ██║ ██╔╝██║██╔════╝████╗  ██║██╔══██╗██╔════╝███║╚════██╗╚════██╗██║  ██║  ▌
-▐  █████╔╝ ██║█████╗  ██╔██╗ ██║██████╔╝██║     ╚██║ █████╔╝ █████╔╝███████║  ▌
-▐  ██╔═██╗ ██║██╔══╝  ██║╚██╗██║██╔═══╝ ██║      ██║██╔═══╝  ╚═══██╗╚════██║  ▌
-▐  ██║  ██╗██║███████╗██║ ╚████║██║     ╚██████╗ ██║███████╗██████╔╝     ██║  ▌
-▐  ╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝╚═╝      ╚═════╝ ╚═╝╚══════╝╚═════╝      ╚═╝  ▌
+▐  ███╗   ███╗ █████╗ ██╗  ██╗███████╗    ██████╗ ██╗   ██╗                 ▌
+▐  ████╗ ████║██╔══██╗██║ ██╔╝██╔════╝    ██╔══██╗╚██╗ ██╔╝                 ▌
+▐  ██╔████╔██║███████║█████╔╝ █████╗      ██████╔╝ ╚████╔╝                  ▌
+▐  ██║╚██╔╝██║██╔══██║██╔═██╗ ██╔══╝      ██╔══██╗  ╚██╔╝                   ▌
+▐  ██║ ╚═╝ ██║██║  ██║██║  ██╗███████╗    ██████╔╝   ██║                  ▌
+▐  ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝    ╚═════╝    ╚═╝                  ▌
+▐                                                                             ▌
+▐  ██╗  ██╗██╗███████╗███╗   ██╗██████╗  ██████╗ ██╗██████╗ ██████╗ ██╗  ██╗  ▌
+▐  ██║ ██╔╝██║██╔════╝████╗  ██║██╔══██╗██╔════╝███║╚════██╗╚════██╗██║  ██║  ▌
+▐  █████╔╝ ██║█████╗  ██╔██╗ ██║██████╔╝██║     ╚██║ █████╔╝ █████╔╝███████║  ▌
+▐  ██╔═██╗ ██║██╔══╝  ██║╚██╗██║██╔═══╝ ██║      ██║██╔═══╝  ╚═══██╗╚════██║  ▌
+▐  ██║  ██╗██║███████╗██║ ╚████║██║     ╚██████╗ ██║███████╗██████╔╝     ██║  ▌
+▐  ╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═══╝╚═╝      ╚═════╝ ╚═╝╚══════╝╚═════╝      ╚═╝  ▌
 ▐▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▌
 Credit: https://github.com/KienPC1234
 """
@@ -67,7 +68,7 @@ Credit: https://github.com/KienPC1234
     print("\n")
 
 def check_python_version():
-    """Kiểm tra phiên bản Python có nằm trong khoảng yêu cầu không."""
+    """Kiểm tra phiên bản Python."""
     current_version = sys.version_info
     if not (MIN_PYTHON_VERSION <= current_version < MAX_PYTHON_VERSION):
         print(f"Lỗi: Phiên bản Python không tương thích.")
@@ -82,6 +83,7 @@ class ProcessManager:
     Quản lý (khởi chạy, giám sát, khởi động lại, và tắt) các tiến trình con.
     """
     def __init__(self, config_file: Path):
+        self.is_shutting_down = False # Cờ kiểm soát trạng thái tắt
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
@@ -95,16 +97,19 @@ class ProcessManager:
         self.processes: Dict[str, Dict[str, Any]] = {}
         self.log_lock = threading.Lock()
         self.log_file_handle: Optional[Any] = None
+        
+        # Đăng ký hàm shutdown chạy khi exit
+        atexit.register(self.shutdown)
 
     def start_process(self, name: str, cmd: List[str]):
-        """
-        Khởi động một tiến trình con, bắt output và tạo luồng log.
-        Thêm `creationflags` cho Windows để việc tắt tiến trình đáng tin cậy hơn.
-        """
+        """Khởi động tiến trình con."""
+        if self.is_shutting_down: return
+
         print(f"Khởi động tiến trình [{name}]: {' '.join(cmd)}")
         
         creationflags = 0
         if sys.platform == "win32":
+            # Tạo group mới để quản lý process tree tốt hơn
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
             
         try:
@@ -116,6 +121,7 @@ class ProcessManager:
                 text=True,
                 encoding='utf-8',
                 errors='replace',
+                # Linux: setsid để tạo session mới, tiện cho việc kill cả group
                 preexec_fn=os.setsid if sys.platform != "win32" else None,
                 creationflags=creationflags
             )
@@ -125,99 +131,109 @@ class ProcessManager:
             print(f"Lỗi khi khởi động [{name}]: {e}")
 
     def _start_log_thread(self, name: str, proc: subprocess.Popen):
-        """
-        Tạo một luồng riêng để đọc output từ tiến trình con.
-        Sử dụng một file handle duy nhất và một Lock để đảm bảo thread-safe khi ghi log.
-        """
+        """Luồng đọc log."""
         def log_reader():
-            if not self.log_file_handle:
-                return
-                
-            for line in iter(proc.stdout.readline, ''):
-                if line.strip():
-                    prefixed_line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{name}] {line.strip()}\n"
-                    
-                    print(prefixed_line.strip())
-                    
-                    try:
-                        with self.log_lock:
-                            self.log_file_handle.write(prefixed_line)
-                            self.log_file_handle.flush()
-                    except Exception as e:
-                        if "closed file" in str(e):
-                            break
-                        print(f"Lỗi ghi log từ [{name}]: {e}")
+            if not self.log_file_handle: return
             
-            proc.stdout.close()
+            try:
+                for line in iter(proc.stdout.readline, ''):
+                    if line.strip():
+                        prefixed_line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{name}] {line.strip()}\n"
+                        print(prefixed_line.strip())
+                        try:
+                            with self.log_lock:
+                                if self.log_file_handle and not self.log_file_handle.closed:
+                                    self.log_file_handle.write(prefixed_line)
+                                    self.log_file_handle.flush()
+                        except ValueError:
+                            break # File đã đóng
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            finally:
+                proc.stdout.close()
 
         t = threading.Thread(target=log_reader, daemon=True)
         t.start()
         self.processes[name]['log_thread'] = t
 
     def monitor_and_restart(self):
-        """Vòng lặp vô hạn giám sát và khởi động lại tiến trình nếu bị lỗi."""
-        while True:
+        """Vòng lặp giám sát."""
+        while not self.is_shutting_down:
             try:
+                # Dùng list(...) để copy keys tránh lỗi runtime modification
                 for name in list(self.processes.keys()):
+                    if self.is_shutting_down: break
+                    
                     info = self.processes[name]
                     if info['proc'].poll() is not None:
-                        print(f"Tiến trình [{name}] đã dừng (mã lỗi: {info['proc'].returncode}). Đang khởi động lại...")
+                        print(f"Tiến trình [{name}] đã dừng (code: {info['proc'].returncode}). Đang khởi động lại...")
                         self.start_process(name, info['cmd'])
+                
                 time.sleep(5)
             except KeyboardInterrupt:
+                self.shutdown()
                 break
             except Exception as e:
-                print(f"Lỗi trong vòng lặp giám sát: {e}")
-                time.sleep(10)
+                if not self.is_shutting_down:
+                    print(f"Lỗi giám sát: {e}")
+                    time.sleep(10)
 
     def shutdown(self, signum=None, frame=None):
-        """
-        Tắt tất cả tiến trình con một cách an toàn.
-        Tắt theo thứ tự ngược lại, sử dụng terminate() trước, chờ (wait), rồi mới kill() (bắt buộc).
-        """
-        print("\nĐang tắt ứng dụng... Gửi tín hiệu dừng đến các tiến trình con.")
+        """Tắt toàn bộ tiến trình con an toàn."""
+        if self.is_shutting_down:
+            return
         
-        for name, info in reversed(self.processes.items()):
-            proc = info['proc']
-            if proc.poll() is None:
-                print(f" - Đang dừng [{name}] (PID: {proc.pid})...", end='', flush=True)
-                try:
-                    if sys.platform != "win32":
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    else:
-                        proc.terminate()
-                    
-                    proc.wait(timeout=5)
-                    print(" [OK]")
+        self.is_shutting_down = True
+        print("\n\n=== ĐANG DỪNG HỆ THỐNG ===")
+        
+        # Đóng file log để tránh lỗi I/O khi thread con cố ghi
+        if self.log_file_handle:
+            try:
+                self.log_file_handle.close()
+            except:
+                pass
 
-                except subprocess.TimeoutExpired:
-                    print(" [Timeout! Buộc dừng]... ", end='', flush=True)
-                    if sys.platform != "win32":
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        for name, info in reversed(list(self.processes.items())):
+            proc = info['proc']
+            if proc.poll() is None: # Nếu process còn chạy
+                print(f" -> Đang diệt [{name}] (PID: {proc.pid})... ", end='', flush=True)
+                try:
+                    if sys.platform == "win32":
+                        # Windows: Dùng taskkill để giết cả cây process (/T) và cưỡng chế (/F)
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
                     else:
-                        proc.kill()
-                    print("[KILLED]")
+                        # Linux/Mac: Giết cả process group
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                        # Chờ 1 chút rồi SIGKILL nếu cứng đầu
+                        try:
+                            proc.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    
+                    print("[OK]")
                 except Exception as e:
-                    print(f" [Lỗi: {e}]")
+                    print(f"[LỖI: {e}]")
+                    # Phương án cuối cùng
                     try:
                         proc.kill()
                     except:
                         pass
-            else:
-                 print(f" - Tiến trình [{name}] đã dừng từ trước.")
-
-        if self.log_file_handle:
-            print("Đóng file log...")
-            self.log_file_handle.close()
-            
-        print("Đã tắt xong. Tạm biệt!")
-        sys.exit(0)
+        
+        print("=== ĐÃ TẮT HOÀN TẤT ===\n")
+        # Không gọi sys.exit(0) ở đây nếu được gọi bởi atexit để tránh loop
 
     def run(self):
-        """Khởi chạy toàn bộ quy trình."""
+        """Khởi chạy."""
         print_banner()
         check_python_version()
         
+        # Đăng ký signal handler
         signal.signal(signal.SIGINT, self.shutdown)
         signal.signal(signal.SIGTERM, self.shutdown)
         
@@ -231,31 +247,28 @@ class ProcessManager:
         for name, cmd in self.config.items():
             self.start_process(name, cmd)
         
-        print("\n" + "="*40)
-        print("Tất cả tiến trình đã được khởi động.")
         print(f"Log đang được ghi tại: {LOG_FILE}")
-        print("Nhấn Ctrl+C để tắt ứng dụng một cách an toàn.")
+        print("Nhấn Ctrl+C để tắt ứng dụng.")
         print("="*40 + "\n")
         
         self.monitor_and_restart()
 
 def main():
-    """Hàm chính của script."""
     os.chdir(BASE_DIR)
-    
     LOG_DIR.mkdir(exist_ok=True)
     
+    # Xoá log cũ
     try:
-        if LOG_FILE.exists():
-            LOG_FILE.unlink()
-    except OSError as e:
-        print(f"Cảnh báo: Không thể xóa file log cũ {LOG_FILE}: {e}")
+        if LOG_FILE.exists(): LOG_FILE.unlink()
+    except OSError: pass
 
     try:
         pm = ProcessManager(config_file=CONFIG_FILE)
         pm.run()
+    except KeyboardInterrupt:
+        pass # Đã xử lý trong shutdown
     except Exception as e:
-        print(f"Lỗi nghiêm trọng không xác định: {e}")
+        print(f"Lỗi Fatal: {e}")
         sys.exit(1)
 
 if __name__ == '__main__':

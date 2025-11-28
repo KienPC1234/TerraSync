@@ -9,8 +9,139 @@ from pathlib import Path
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from utils import get_latest_telemetry_stats, predict_water_needs, calculate_days_to_harvest
+import requests
+import math
 
 logger = logging.getLogger(__name__)
+
+# ===== Các hàm phụ để tính toán ET0 (FAO Penman-Monteith) =====
+def saturation_vapor_pressure(T):
+    # e_s (kPa)
+    return 0.6108 * math.exp((17.27 * T) / (T + 237.3))
+
+def slope_vapor_pressure_curve(T):
+    # Δ (kPa/°C)
+    e_s = saturation_vapor_pressure(T)
+    return 4098 * e_s / ((T + 237.3) ** 2)
+
+def psychrometric_constant(P=101.3):
+    # γ (kPa/°C), P ~ 101.3 kPa ở mực nước biển
+    return 0.000665 * P
+
+def et0_FAO(T, RH, u2, Rs, P=101.3):
+    # T: °C, RH: %, u2: m/s, Rs: MJ/m²/day
+    e_s = saturation_vapor_pressure(T)
+    e_a = e_s * RH / 100.0
+    Δ = slope_vapor_pressure_curve(T)
+    γ = psychrometric_constant(P)
+    Rn = Rs  # giả sử G ≈ 0
+    G = 0
+
+    num = 0.408 * Δ * (Rn - G) + γ * (900 / (T + 273)) * u2 * (e_s - e_a)
+    den = Δ + γ * (1 + 0.34 * u2)
+    return num / den
+
+def get_nasa_weather_data(lat, lon):
+    # Lấy dữ liệu 30 ngày gần nhất
+    end_date = datetime.now() - timedelta(days=2) # NASA data thường trễ 1-2 ngày
+    start_date = end_date - timedelta(days=30)
+    
+    start_str = start_date.strftime("%Y%m%d")
+    end_str = end_date.strftime("%Y%m%d")
+
+    url = (
+        f"https://power.larc.nasa.gov/api/temporal/daily/point"
+        f"?parameters=T2M,WS2M,RH2M,ALLSKY_SFC_SW_DWN"
+        f"&community=AG"
+        f"&longitude={lon}"
+        f"&latitude={lat}"
+        f"&start={start_str}"
+        f"&end={end_str}"
+        f"&format=JSON"
+    )
+    
+    try:
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        logger.error(f"Error fetching NASA data: {e}")
+    return None
+
+def render_nasa_info(field):
+    with st.expander("🌍 Dữ liệu Thời tiết & ET0 từ NASA (AOI)", expanded=False):
+        st.caption("Dữ liệu từ NASA POWER Project (độ trễ 1-2 ngày). Tính toán ET0 theo chuẩn FAO-56 Penman-Monteith.")
+        
+        center = field.get('center', [21.0278, 105.8342]) # Default Hanoi if missing
+        if not center or len(center) < 2:
+             center = [21.0278, 105.8342]
+        
+        lat, lon = center[0], center[1]
+        st.write(f"**Tọa độ:** Lat {lat:.4f}, Lon {lon:.4f}")
+
+        if st.button("🔄 Tải dữ liệu NASA mới nhất"):
+            with st.spinner("Đang kết nối tới NASA POWER API..."):
+                data = get_nasa_weather_data(lat, lon)
+                
+                if data:
+                    try:
+                        params = data["properties"]["parameter"]
+                        T2M = params.get("T2M", {})
+                        WS2M = params.get("WS2M", {})
+                        RH2M = params.get("RH2M", {})
+                        RS = params.get("ALLSKY_SFC_SW_DWN", {})
+                        
+                        # Tính ET0
+                        records = []
+                        for day_str in T2M.keys():
+                            try:
+                                T = T2M[day_str]
+                                RH = RH2M[day_str]
+                                u2 = WS2M[day_str]
+                                Rs = RS[day_str]
+                                
+                                # Kiểm tra dữ liệu hợp lệ (NASA đôi khi trả về -999)
+                                if T > -90 and RH >= 0 and u2 >= 0 and Rs >= 0:
+                                    et0 = round(et0_FAO(T, RH, u2, Rs), 2)
+                                    
+                                    date_obj = datetime.strptime(day_str, "%Y%m%d")
+                                    records.append({
+                                        "Ngày": date_obj,
+                                        "Nhiệt độ (°C)": T,
+                                        "Độ ẩm (%)": RH,
+                                        "Gió (m/s)": u2,
+                                        "Bức xạ (MJ/m²)": Rs,
+                                        "ET0 (mm/ngày)": et0
+                                    })
+                            except Exception as e:
+                                continue
+                                
+                        if records:
+                            df_nasa = pd.DataFrame(records)
+                            df_nasa = df_nasa.sort_values(by="Ngày", ascending=False)
+                            
+                            st.dataframe(df_nasa.style.format({
+                                "Ngày": "{:%Y-%m-%d}",
+                                "Nhiệt độ (°C)": "{:.1f}",
+                                "Độ ẩm (%)": "{:.1f}",
+                                "Gió (m/s)": "{:.1f}",
+                                "Bức xạ (MJ/m²)": "{:.2f}",
+                                "ET0 (mm/ngày)": "{:.2f}"
+                            }))
+                            
+                            # Biểu đồ ET0
+                            fig = px.line(df_nasa, x='Ngày', y='ET0 (mm/ngày)', title="Biến thiên ET0 (30 ngày qua)", markers=True)
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            avg_et0 = df_nasa["ET0 (mm/ngày)"].mean()
+                            st.success(f"✅ ET0 Trung bình 30 ngày qua: **{avg_et0:.2f} mm/ngày**")
+                        else:
+                            st.warning("Không có dữ liệu hợp lệ từ NASA trong khoảng thời gian này.")
+                            
+                    except Exception as e:
+                        st.error(f"Lỗi xử lý dữ liệu NASA: {e}")
+                else:
+                    st.error("Không thể tải dữ liệu từ NASA. Vui lòng thử lại sau.")
 
 
 @st.cache_resource
@@ -103,7 +234,17 @@ def render_schedule():
             updated_count = 0
             for field in user_fields:
                 try:
-                    water_needs = predict_water_needs(field, None)
+                    # --- Fetch Telemetry ---
+                    telemetry = None
+                    hubs = db.get("iot_hubs", {"field_id": field.get('id'), "user_email": st.user.email})
+                    if hubs:
+                        hub_id = hubs[0].get('hub_id')
+                        telemetry_data = db.get("telemetry", {"hub_id": hub_id})
+                        if telemetry_data:
+                             # Get the latest one
+                             telemetry = sorted(telemetry_data, key=lambda x: x.get('timestamp', ''), reverse=True)[0]
+                    
+                    water_needs = predict_water_needs(field, telemetry)
 
                     update_data = {
                         "base_today_water": water_needs,
@@ -142,6 +283,10 @@ def render_schedule():
         "Chọn Vườn để xem chi tiết", options=list(
             field_options.keys()))
     selected_field = field_options[selected_field_name]
+
+    # --- Thêm block NASA AOI ---
+    render_nasa_info(selected_field)
+    # ---------------------------
 
     tab1, tab2, tab3 = st.tabs(
         ["📊 Trạng thái hiện tại", "📈 Dự báo 7 ngày", "⚙️ Cài đặt tưới"])
@@ -346,11 +491,15 @@ def render_forecast(field):
             future_days_df = pd.DataFrame(
                 future_day_numbers, columns=['days'])
             future_predictions = model.predict(future_days_df)
+            
+            # --- Add Randomness (Noise) ---
+            # Add normally distributed noise to simulate weather/soil variations
+            # Scale is 2.0% moisture
+            noise = np.random.normal(0, 2.0, size=future_predictions.shape)
+            future_predictions += noise
 
             base_water = field.get('base_today_water', 0)
             if base_water == 0:
-                st.info(
-                    "Vườn này chưa được tính toán nhu cầu tưới cơ bản. Dự báo có thể không chính xác.")
                 base_water = predict_water_needs(field, None)
 
             water_needs_forecast = []
@@ -364,6 +513,11 @@ def render_forecast(field):
                     needed = base_water * (
                         1 - (moisture - MOISTURE_MIN_THRESHOLD) /
                         (MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD))
+                
+                # Add small random variation to water need as well (e.g. +/- 5%)
+                if needed > 0:
+                     needed *= np.random.uniform(0.95, 1.05)
+
                 water_needs_forecast.append(max(0, needed))
 
             # Simpler and more robust way to calculate future dates
@@ -376,20 +530,31 @@ def render_forecast(field):
             forecast_df = pd.DataFrame(
                 {'Date': future_dates, 'Lượng nước dự báo (m³)': water_needs_forecast})
 
-            st.success("✅ Tạo dự báo thành công!")
+            # --- Improved UI ---
+            st.success("✅ Tạo mô hình dự báo & mô phỏng ngẫu nhiên thành công!")
+            
+            c1, c2, c3 = st.columns(3)
+            total_forecast = sum(water_needs_forecast)
+            avg_forecast = total_forecast / 7
+            max_forecast = max(water_needs_forecast)
+            
+            c1.metric("Tổng lượng nước 7 ngày", f"{total_forecast:.1f} m³")
+            c2.metric("Trung bình/ngày", f"{avg_forecast:.1f} m³")
+            c3.metric("Ngày cao điểm", f"{max_forecast:.1f} m³")
 
             fig = px.bar(
                 forecast_df,
                 x='Date',
                 y='Lượng nước dự báo (m³)',
-                title='Dự báo lượng nước cần tưới trong 7 ngày tới',
+                title='Dự báo lượng nước cần tưới trong 7 ngày tới (Mô phỏng)',
                 labels={
                     'Date': 'Ngày',
                     'Lượng nước dự báo (m³)': 'Lượng nước dự báo (m³)'})
-            fig.update_traces(marker_color='skyblue')
+            fig.update_traces(marker_color='#00CC96')
+            fig.update_layout(bargap=0.2)
             st.plotly_chart(fig, use_container_width=True)
 
-            with st.expander("Xem chi tiết dự báo"):
+            with st.expander("Xem chi tiết dự báo (Dữ liệu bảng)"):
                 st.dataframe(forecast_df.style.format(
                     {"Date": "{:%Y-%m-%d}", "Lượng nước dự báo (m³)": "{:.2f}"}))
 

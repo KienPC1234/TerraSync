@@ -1,4 +1,5 @@
 import os
+import math
 import requests
 import pandas as pd
 import google.generativeai as genai
@@ -227,6 +228,89 @@ def generate_schedule(
     return schedule
 
 
+# ===== Helper functions for ET0 (FAO Penman-Monteith) =====
+def saturation_vapor_pressure(T):
+    # e_s (kPa)
+    return 0.6108 * math.exp((17.27 * T) / (T + 237.3))
+
+def slope_vapor_pressure_curve(T):
+    # Δ (kPa/°C)
+    e_s = saturation_vapor_pressure(T)
+    return 4098 * e_s / ((T + 237.3) ** 2)
+
+def psychrometric_constant(P=101.3):
+    # γ (kPa/°C)
+    return 0.000665 * P
+
+def et0_FAO(T, RH, u2, Rs, P=101.3):
+    # FAO-56 Penman-Monteith equation
+    e_s = saturation_vapor_pressure(T)
+    e_a = e_s * RH / 100.0
+    Δ = slope_vapor_pressure_curve(T)
+    γ = psychrometric_constant(P)
+    Rn = Rs  # Net radiation (simplified, assuming G approx 0)
+    G = 0
+
+    num = 0.408 * Δ * (Rn - G) + γ * (900 / (T + 273)) * u2 * (e_s - e_a)
+    den = Δ + γ * (1 + 0.34 * u2)
+    return num / den
+
+def get_avg_nasa_et0(lat, lon, days=30):
+    """
+    Lấy dữ liệu từ NASA POWER và tính ET0 trung bình trong khoảng thời gian 'days' gần nhất.
+    """
+    try:
+        # NASA data usually has a delay of 2-3 days
+        end_date = datetime.now() - timedelta(days=3)
+        start_date = end_date - timedelta(days=days)
+        
+        start_str = start_date.strftime("%Y%m%d")
+        end_str = end_date.strftime("%Y%m%d")
+        
+        # API request to NASA POWER (Agroclimatology)
+        url = (
+            f"https://power.larc.nasa.gov/api/temporal/daily/point"
+            f"?parameters=T2M,WS2M,RH2M,ALLSKY_SFC_SW_DWN"
+            f"&community=AG"
+            f"&longitude={lon}"
+            f"&latitude={lat}"
+            f"&start={start_str}"
+            f"&end={end_str}"
+            f"&format=JSON"
+        )
+        
+        response = requests.get(url, timeout=5)
+        if response.status_code != 200:
+            return None
+            
+        data = response.json()
+        params = data.get("properties", {}).get("parameter", {})
+        
+        T2M = params.get("T2M", {})
+        WS2M = params.get("WS2M", {})
+        RH2M = params.get("RH2M", {})
+        RS = params.get("ALLSKY_SFC_SW_DWN", {})
+        
+        et0_values = []
+        for date_key in T2M:
+            T = T2M.get(date_key, -999)
+            u2 = WS2M.get(date_key, -999)
+            RH = RH2M.get(date_key, -999)
+            Rs = RS.get(date_key, -999)
+            
+            # Filter out invalid data (-999 is NASA's null value)
+            if T > -90 and u2 >= 0 and RH >= 0 and Rs >= 0:
+                val = et0_FAO(T, RH, u2, Rs)
+                et0_values.append(val)
+                
+        if et0_values:
+            return sum(et0_values) / len(et0_values)
+            
+    except Exception as e:
+        print(f"Lỗi khi tính ET0 từ NASA: {e}")
+        
+    return None
+
 def predict_water_needs(
         field: Dict[str, Any],
         telemetry: Optional[Dict[str, Any]]) -> float:
@@ -244,35 +328,73 @@ def predict_water_needs(
     water_needs_by_stage = crop_info.get("water_needs", {})
     Kc = water_needs_by_stage.get(current_stage_name, crop_info.get("crop_coefficient", 1.0))
 
-    soil_moisture = None
-    if telemetry:
-        soil_moisture = _aggregate_soil_moisture(telemetry)
+    # 1. Calculate Reference Evapotranspiration (ETo)
+    # Try to get from NASA for the specific location
+    ETo = 3.5 # Default fallback value (mm/day)
+    center = field.get("center")
+    if center and len(center) >= 2:
+        lat, lon = center[0], center[1]
+        nasa_et0 = get_avg_nasa_et0(lat, lon)
+        if nasa_et0 is not None:
+            ETo = nasa_et0
 
-    rain_intensity = 0.0
-    if telemetry and "atmospheric_node" in telemetry.get("data", {}):
-        sensors = telemetry["data"]["atmospheric_node"].get("sensors", {})
-        rain_intensity = sensors.get("rain_intensity", 0.0)
-
-    ETo = 5.0
+    # 2. Calculate Crop Evapotranspiration (ETc)
     ETc = ETo * Kc
 
+    # 3. Adjust for Soil Moisture
+    soil_moisture = None
+    is_fresh = False
+    
+    if telemetry and "timestamp" in telemetry:
+        try:
+            ts_str = telemetry["timestamp"]
+            ts = None
+            if isinstance(ts_str, str):
+                # Handle basic ISO format
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            elif isinstance(ts_str, datetime):
+                ts = ts_str
+            
+            if ts:
+                # Make sure we compare apples to apples (offset-aware or naive)
+                now = datetime.now(ts.tzinfo) if ts.tzinfo else datetime.now()
+                if (now - ts).days < 2:
+                    is_fresh = True
+        except Exception:
+            is_fresh = False
+
+    if is_fresh:
+        soil_moisture = _aggregate_soil_moisture(telemetry)
+
+    water_from_moisture = 0.0
     if soil_moisture is not None:
-        mad_threshold = 50.0
+        mad_threshold = 50.0 # Maximum Allowable Depletion (simplified %)
         if soil_moisture < mad_threshold:
             moisture_deficit = mad_threshold - soil_moisture
-            water_from_moisture = (moisture_deficit / 100.0) * ETc * 2
-        else:
-            water_from_moisture = 0.0
-        water_needed_mm = ETc + water_from_moisture
-    else:
-        water_needed_mm = ETc
+            # Simple logic: replenish deficit + buffer
+            water_from_moisture = (moisture_deficit / 100.0) * ETc * 1.5
+        
+    water_needed_mm = ETc + water_from_moisture
 
-    effective_rain = rain_intensity * 0.8
+    # 4. Adjust for Rain / Rain forecast
+    rain_intensity = 0.0
+    if is_fresh and telemetry and "atmospheric_node" in telemetry.get("data", {}):
+        sensors = telemetry["data"]["atmospheric_node"].get("sensors", {})
+        rain_intensity = sensors.get("rain_intensity", 0.0)
+    
+    effective_rain = rain_intensity * 0.8 # Assume 80% efficiency
     water_needed_mm = max(0.0, water_needed_mm - effective_rain)
 
-    area_sqm = field.get("area", 0) * 4046.86 
+    # 5. Convert to Volume (m3)
+    # Area is stored in Hectares. 1 Ha = 10,000 m2
+    area_ha = field.get("area", 0)
+    area_sqm = area_ha * 10000.0 
+    
+    # water_needed_mm is in mm (liters/m2)
+    # Total liters = mm * m2
     total_liters = water_needed_mm * area_sqm
 
+    # Return in cubic meters (m3). 1 m3 = 1000 liters
     return round(total_liters / 1000.0, 2)
 
 

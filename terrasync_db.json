@@ -5,7 +5,7 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-11-19T07:21:24.041931",
-      "last_login": "2025-11-26T08:02:19.775908",
+      "last_login": "2025-11-26T16:37:42.106549",
       "is_active": true,
       "id": "fd195b21-da39-4fe1-8e19-d159d6a93040",
       "created_at": "2025-11-19T07:21:24.041975",
@@ -14,7 +14,7 @@
       "role": "Nông dân",
       "experience": "Trung cấp (1-5 năm)",
       "bio": "Test",
-      "updated_at": "2025-11-26T08:02:19.776684"
+      "updated_at": "2025-11-26T16:37:42.108023"
     }
   ],
   "fields": [
@@ -54,12 +54,12 @@
       "status": "hydrated",
       "created_at": "2025-11-19T09:48:46.580873",
       "user_email": "kienpc872009@gmail.com",
-      "base_today_water": 35.58,
-      "base_time_needed": 1.8,
-      "today_water": 0,
+      "base_today_water": 63.28,
+      "base_time_needed": 3.2,
+      "today_water": 63.28,
       "time_needed": 0,
       "progress": 100,
-      "updated_at": "2025-11-21T08:51:02.851435",
+      "updated_at": "2025-11-26T16:43:22.678920",
       "irrigation_efficiency": 88,
       "water_saving_mode": false,
       "weather_adjustment": true,
@@ -926,6 +926,98 @@
       },
       "id": "bbbf8f46-6c38-48f9-9f12-bb2417ba6ac4",
       "created_at": "2025-11-24T17:44:36.668196"
+    },
+    {
+      "hub_id": "hub-01",
+      "timestamp": "2025-11-26T09:42:47.154000+00:00",
+      "location": {
+        "latitude": 20.4512,
+        "longitude": 106.3312
+      },
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil-01",
+            "sensors": {
+              "soil_moisture": 35.0,
+              "soil_temperature": 25.0
+            }
+          },
+          {
+            "node_id": "soil-02",
+            "sensors": {
+              "soil_moisture": 40.0,
+              "soil_temperature": 26.0
+            }
+          },
+          {
+            "node_id": "soil-03",
+            "sensors": {
+              "soil_moisture": 30.0,
+              "soil_temperature": 24.0
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm-01",
+          "sensors": {
+            "air_temperature": 28.0,
+            "air_humidity": 60.0,
+            "rain_intensity": 0.0,
+            "wind_speed": 5.0,
+            "light_intensity": 1000.0,
+            "barometric_pressure": 1012.0
+          }
+        }
+      },
+      "id": "ffddd2c2-39d3-4f6c-9e34-2b91531b1757",
+      "created_at": "2025-11-26T16:42:48.151758"
+    },
+    {
+      "hub_id": "hub-01",
+      "timestamp": "2025-11-26T09:43:09.057000+00:00",
+      "location": {
+        "latitude": 20.4512,
+        "longitude": 106.3312
+      },
+      "data": {
+        "soil_nodes": [
+          {
+            "node_id": "soil-01",
+            "sensors": {
+              "soil_moisture": 35.0,
+              "soil_temperature": 25.0
+            }
+          },
+          {
+            "node_id": "soil-02",
+            "sensors": {
+              "soil_moisture": 40.0,
+              "soil_temperature": 26.0
+            }
+          },
+          {
+            "node_id": "soil-03",
+            "sensors": {
+              "soil_moisture": 30.0,
+              "soil_temperature": 24.0
+            }
+          }
+        ],
+        "atmospheric_node": {
+          "node_id": "atm-01",
+          "sensors": {
+            "air_temperature": 28.0,
+            "air_humidity": 60.0,
+            "rain_intensity": 0.0,
+            "wind_speed": 5.0,
+            "light_intensity": 1000.0,
+            "barometric_pressure": 1012.0
+          }
+        }
+      },
+      "id": "5999b481-212c-4b86-a09a-df72d558a5ca",
+      "created_at": "2025-11-26T16:43:09.821813"
     }
   ],
   "chat_history": [],

@@ -9,6 +9,10 @@
     "-m",
     "iotAPI.main"
   ],
+  "mo_phong": [
+    "bash",
+    "runMoPhong.sh"
+  ],
   "background_job": [
     "python",
     "-m",
