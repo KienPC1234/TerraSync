@@ -211,6 +211,65 @@ def get_field_telemetry_history(
     return df.sort_values(by="timestamp")
 
 
+def update_field_from_telemetry(field):
+    """Tính toán trạng thái từ telemetry và lưu vào DB."""
+    user_email = field.get('user_email')
+    field_id = field.get('id')
+    live_stats = get_latest_telemetry_stats(user_email, field_id)
+
+    if live_stats and live_stats.get("avg_moisture") is not None:
+        avg_moisture = live_stats["avg_moisture"]
+        rain_intensity = live_stats["rain_intensity"]
+
+        base_water = field.get('base_today_water', field.get('today_water', 0))
+        base_time = field.get('base_time_needed', field.get('time_needed', 0))
+
+        new_status = field.get('status')
+        new_progress = field.get('progress')
+        new_water = base_water
+        new_time = base_time
+
+        if rain_intensity > RAIN_THRESHOLD_MMH:
+            new_status = "hydrated"
+            new_progress = 100
+            new_water = 0
+            new_time = 0
+        elif avg_moisture < MOISTURE_MIN_THRESHOLD:
+            new_status = "dehydrated"
+            new_progress = 0
+            new_water = base_water
+            new_time = base_time
+        elif avg_moisture > MOISTURE_MAX_THRESHOLD:
+            new_status = "hydrated"
+            new_progress = 100
+            new_water = 0
+            new_time = 0
+        else:
+            new_status = "hydrated"
+            new_progress = int((avg_moisture / MOISTURE_MAX_THRESHOLD) * 100)
+            new_progress = max(0, min(100, new_progress))
+
+            remaining_factor = 1.0 - (new_progress / 100.0)
+            new_water = round(base_water * remaining_factor, 1)
+            new_time = round(base_time * remaining_factor, 1)
+
+        update_data = {
+            "status": new_status,
+            "progress": new_progress,
+            "today_water": new_water,
+            "time_needed": new_time,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        try:
+            db.update("fields", {"id": field_id}, update_data)
+            return True
+        except Exception as e:
+            logger.error(f"Error updating field {field_id}: {e}")
+            return False
+    return False
+
+
 def render_schedule():
     st.title("📅 Tình trạng & Lập kế hoạch tưới tiêu")
     st.markdown("Quản lý lịch tưới và trạng thái tưới tiêu.")
@@ -303,6 +362,11 @@ def render_current_status(field, all_fields):
     st.subheader(f"📊 Trạng thái hiện tại: {field.get('name')}")
 
     if st.button("🔄 Cập nhật từ cảm biến"):
+        with st.spinner("Đang đồng bộ dữ liệu và cập nhật DB..."):
+            if update_field_from_telemetry(field):
+                st.success("Đã cập nhật trạng thái mới nhất vào cơ sở dữ liệu!")
+            else:
+                st.warning("Không thể cập nhật (có thể thiếu dữ liệu telemetry).")
         get_field_telemetry_history.clear()
         st.rerun()
 

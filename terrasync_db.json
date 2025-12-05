@@ -5,7 +5,7 @@
       "name": "Hà Trí Kiên 11A5",
       "picture": "https://lh3.googleusercontent.com/a/ACg8ocIvG3j7WQDYUi1l_flDoGIZ1sBRM-xxaNwLgFNpeN66bRkubeYl=s96-c",
       "first_login": "2025-11-19T07:21:24.041931",
-      "last_login": "2025-11-26T16:37:42.106549",
+      "last_login": "2025-12-01T21:42:55.755710",
       "is_active": true,
       "id": "fd195b21-da39-4fe1-8e19-d159d6a93040",
       "created_at": "2025-11-19T07:21:24.041975",
@@ -14,7 +14,7 @@
       "role": "Nông dân",
       "experience": "Trung cấp (1-5 năm)",
       "bio": "Test",
-      "updated_at": "2025-11-26T16:37:42.108023"
+      "updated_at": "2025-12-01T21:42:55.756566"
     }
   ],
   "fields": [
@@ -54,12 +54,12 @@
       "status": "hydrated",
       "created_at": "2025-11-19T09:48:46.580873",
       "user_email": "kienpc872009@gmail.com",
-      "base_today_water": 63.28,
-      "base_time_needed": 3.2,
-      "today_water": 63.28,
-      "time_needed": 0,
-      "progress": 100,
-      "updated_at": "2025-11-26T16:43:22.678920",
+      "base_today_water": 54.93,
+      "base_time_needed": 2.7,
+      "today_water": 20.3,
+      "time_needed": 1.0,
+      "progress": 63,
+      "updated_at": "2025-12-01T18:47:03.837845",
       "irrigation_efficiency": 88,
       "water_saving_mode": false,
       "weather_adjustment": true,

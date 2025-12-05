@@ -1,16 +1,34 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import folium
 from streamlit_folium import folium_static
 import pandas as pd
 import altair as alt
 import logging
 from database import db
-from utils import check_warnings, calculate_days_to_harvest
+from utils import check_warnings, calculate_days_to_harvest, get_latest_telemetry_stats
+from datetime import datetime
+import toml
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+@st.cache_resource
+def load_config():
+    config_path = Path(".streamlit/appcfg.toml")
+    if not config_path.exists():
+        return {}
+    try:
+        return toml.load(config_path)
+    except Exception:
+        return {}
 
-@st.cache_data(ttl=60)
+config = load_config()
+irrigation_cfg = config.get('irrigation', {})
+MOISTURE_MIN_THRESHOLD = irrigation_cfg.get('moisture_min_threshold', 25.0)
+MOISTURE_MAX_THRESHOLD = irrigation_cfg.get('moisture_max_threshold', 55.0)
+RAIN_THRESHOLD_MMH = irrigation_cfg.get('rain_threshold_mmh', 1.0)
+
 def load_dashboard_data(user_email: str):
     """
     Tải tất cả dữ liệu cần thiết cho dashboard từ DB và lọc theo user_email.
@@ -217,19 +235,63 @@ def render_dashboard():
                             f"{days_to_harvest} ngày" if days_to_harvest is not None else "N/A")
 
                     with col2:
+                        # Logic đồng bộ với my_fields.py và my_schedule.py
+                        live_stats = get_latest_telemetry_stats(st.user.email, farm_data.get('id'))
+                        
+                        display_status = farm_data.get("status", "hydrated")
+                        display_water = farm_data.get('today_water', 'N/A')
+                        
+                        # Ưu tiên lấy progress từ DB. Nếu không có mới tự tính.
+                        if farm_data.get("progress") is not None:
+                            display_progress = farm_data.get("progress")
+                        else:
+                            display_progress = 0 # Default
+
+                        # Nếu không có progress trong DB, thử tính toán live (Fallback)
+                        if farm_data.get("progress") is None and live_stats and live_stats.get("avg_moisture") is not None:
+                            avg_moisture = live_stats["avg_moisture"]
+                            rain_intensity = live_stats["rain_intensity"]
+
+                            base_water = farm_data.get('base_today_water', farm_data.get('today_water', 0))
+                            
+                            if rain_intensity > RAIN_THRESHOLD_MMH:
+                                display_status = "hydrated"
+                                display_progress = 100
+                                display_water = 0
+                            elif avg_moisture < MOISTURE_MIN_THRESHOLD:
+                                display_status = "dehydrated"
+                                display_progress = 0
+                                display_water = base_water
+                            elif avg_moisture > MOISTURE_MAX_THRESHOLD:
+                                display_status = "hydrated"
+                                display_progress = 100
+                                display_water = 0
+                            else:
+                                display_status = "hydrated"
+                                progress_range = MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD
+                                current_progress = avg_moisture - MOISTURE_MIN_THRESHOLD
+                                calculated_progress = int((current_progress / progress_range) * 100)
+                                display_progress = max(0, min(100, calculated_progress))
+
+                                remaining_factor = 1.0 - (display_progress / 100.0)
+                                if isinstance(base_water, (int, float)):
+                                     display_water = round(base_water * remaining_factor, 1)
+                        
+                        # Force progress to be within 0-100
+                        display_progress = max(0, min(100, display_progress))
+
                         st.metric(
                             "🟢 Trạng thái",
-                            farm_data.get("status", "Không rõ").title())
+                            display_status.title())
                         st.metric(
                             "💧 Nước tưới hàng ngày",
-                            f"{farm_data.get('today_water', 'N/A')} m³")
+                            f"{display_water} m³" if display_water != 'N/A' else "N/A")
                         st.metric(
                             "🌿 Loại cây trồng", farm_data.get("crop", "N/A"))
 
-                    watering_progress = farm_data.get('progress', 0)
                     st.progress(
-                        watering_progress / 100,
-                        text=f"Tiến độ tưới: {watering_progress}%")
+                        display_progress / 100,
+                        text=f"Tiến độ tưới: {display_progress}%")
 
                     node_id = farm_data.get("node_id")
                     if node_id and telemetry:
@@ -333,6 +395,46 @@ def render_dashboard():
                     pass
 
             folium_static(m, width="100%", height=630)
+
+
+    st.subheader("Mô phỏng Vườn 3D")
+
+    # Lấy dữ liệu môi trường cho mô phỏng
+    sim_temp = atm.get("air_temperature", 25)
+    sim_hum = atm.get("air_humidity", 60)
+    sim_rain = atm.get("rain_intensity", 0)
+    sim_wind = atm.get("wind_speed", 0)
+    sim_light = atm.get("light_intensity", 500)
+    sim_pressure = atm.get("barometric_pressure", 1000)
+
+    sim_temp = sim_temp if sim_temp is not None else 25
+    sim_hum = sim_hum if sim_hum is not None else 60
+    sim_rain = sim_rain if sim_rain is not None else 0
+    sim_wind = sim_wind if sim_wind is not None else 0
+    sim_light = sim_light if sim_light is not None else 500
+    sim_pressure = sim_pressure if sim_pressure is not None else 1000
+
+    simulation_html = f"""
+    <iframe src="http://103.252.0.76:3000" id="my-simulation-iframe" width="100%" height="600px" style="border:none; border-radius: 10px;"></iframe>
+    <script>
+        const iframe = document.getElementById('my-simulation-iframe');
+        function sendData() {{
+            if (iframe && iframe.contentWindow) {{
+                iframe.contentWindow.postMessage({{
+                    temperature: {sim_temp},
+                    humidity: {sim_hum},
+                    rain: {sim_rain},
+                    wind: {sim_wind},
+                    light: {sim_light},
+                    pressure: {sim_pressure}
+                }}, '*');
+            }}
+        }}
+        iframe.onload = sendData;
+        setTimeout(sendData, 2000);
+    </script>
+    """
+    components.html(simulation_html, height=620)
 
     with st.container(border=True):
         st.subheader("📈 Xu hướng môi trường")

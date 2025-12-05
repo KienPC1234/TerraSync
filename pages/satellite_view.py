@@ -21,6 +21,7 @@ from utils import fetch_forecast, get_weather_recommendation
 try:
     import numpy as np
     from rasterio.io import MemoryFile
+    import rasterio.mask
     from matplotlib import cm
     from matplotlib.colors import Normalize
 except ImportError:
@@ -47,7 +48,7 @@ WMO_WEATHER_CODES = {
 
 # --- HELPER FUNCTIONS CHO XỬ LÝ ẢNH & DỮ LIỆU ---
 
-def process_ndvi_data(geotiff_bytes: bytes) -> Tuple[Image.Image, np.ndarray, float]:
+def process_ndvi_data(geotiff_bytes: bytes, polygon: List[List[float]] = None) -> Tuple[Image.Image, np.ndarray, float]:
     """
     Xử lý bytes GeoTIFF để trả về:
     1. Ảnh PNG màu (RGBA - có trong suốt) để hiển thị đẹp trên Web/App
@@ -57,17 +58,40 @@ def process_ndvi_data(geotiff_bytes: bytes) -> Tuple[Image.Image, np.ndarray, fl
     try:
         with MemoryFile(geotiff_bytes) as memfile:
             with memfile.open() as dataset:
-                # Đọc band 1
-                ndvi_data = dataset.read(1)
                 nodata_val = dataset.nodata
+                
+                if polygon:
+                    # Polygon is [[lat, lon], ...] (Folium format)
+                    # Rasterio/GeoJSON expects [[lon, lat], ...]
+                    roi_coords = [[p[1], p[0]] for p in polygon]
+                    shapes = [{'type': 'Polygon', 'coordinates': [roi_coords]}]
+                    
+                    try:
+                        # Crop=True removes rows/cols outside the bounding box
+                        # Nodata handling: fill outside with existing nodata or NaN
+                        fill_val = nodata_val if nodata_val is not None else np.nan
+                        masked_data, _ = rasterio.mask.mask(dataset, shapes, crop=True, nodata=fill_val)
+                        ndvi_data = masked_data[0]
+                        
+                        # If we used NaN as fill, ensure nodata_val reflects that for later masking
+                        if nodata_val is None:
+                            nodata_val = np.nan
+                    except Exception as e:
+                        print(f"Lỗi cắt ảnh theo polygon: {e}")
+                        ndvi_data = dataset.read(1)
+                else:
+                    # Đọc band 1
+                    ndvi_data = dataset.read(1)
                 
                 # Chuyển sang float để tính toán
                 ndvi_float = ndvi_data.astype(np.float32)
 
                 # 1. Tạo Mask cho dữ liệu không hợp lệ (Nodata hoặc NaN)
                 if nodata_val is not None:
-                    # Mask những điểm là nodata
-                    mask = (ndvi_float == nodata_val) | np.isnan(ndvi_float)
+                    if np.isnan(nodata_val):
+                        mask = np.isnan(ndvi_float)
+                    else:
+                        mask = (ndvi_float == nodata_val) | np.isnan(ndvi_float)
                 else:
                     mask = np.isnan(ndvi_float)
                 
@@ -217,6 +241,7 @@ def render_satellite_map():
     
     with col_act1:
         st.info("📡 **Dữ liệu trực tiếp**")
+        crop_option = st.checkbox("Chỉ phân tích trong vùng chọn", value=True, help="Cắt ảnh và số liệu thống kê chính xác theo ranh giới vườn.")
         process_btn = st.button("🚀 Quét Vệ Tinh Ngay", type="primary", use_container_width=True)
     
     with col_act2:
@@ -229,6 +254,8 @@ def render_satellite_map():
             
             if result["status"] == "success":
                 st.session_state.satellite_result = result
+                st.session_state.selected_polygon = selected_field.get('polygon')
+                st.session_state.crop_to_polygon = crop_option
                 st.success("✅ Đã tải dữ liệu thành công! Chuyển sang tab 'Phân Tích Sức Khỏe' để xem chi tiết.")
             else:
                 st.error(f"❌ Lỗi: {result.get('message')}")
@@ -243,6 +270,10 @@ def render_ndvi_analysis():
     result = st.session_state.satellite_result
     api_res = result.get("api_result", {})
     
+    # Lấy thông tin crop từ session state (đã lưu lúc bấm nút Quét)
+    use_crop = st.session_state.get("crop_to_polygon", False)
+    polygon_coords = st.session_state.get("selected_polygon", None)
+
     # Layout: Chia thành 2 cột chính
     col_visual, col_stats = st.columns([1.2, 1])
 
@@ -256,7 +287,11 @@ def render_ndvi_analysis():
         with tab_img1:
             if "ndvi_geotiff_base64" in api_res:
                 tiff_bytes = base64.b64decode(api_res["ndvi_geotiff_base64"])
-                img_ndvi, ndvi_array, _ = process_ndvi_data(tiff_bytes)
+                
+                # Truyền polygon vào nếu có chọn crop
+                crop_poly = polygon_coords if use_crop else None
+                img_ndvi, ndvi_array, _ = process_ndvi_data(tiff_bytes, crop_poly)
+                
                 st.image(img_ndvi, use_container_width=True, caption="Vùng xanh đậm: Cây khỏe mạnh")
             else:
                 st.warning("Không có dữ liệu NDVI.")

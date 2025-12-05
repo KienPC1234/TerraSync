@@ -57,7 +57,7 @@
     {
       "name": "Ngô",
       "call_name": "corn",
-      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Corn_on_the_cob.jpg/800px-Corn_on_the_cob.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Corn_with_white_and_yellow_kernels.jpg/500px-Corn_with_white_and_yellow_kernels.jpg",
       "water_needs": {
         "initial": 0.4,
         "development": 0.8,
@@ -83,6 +83,7 @@
     },
     {
       "name": "Lúa Mì",
+      "image_url":"https://upload.wikimedia.org/wikipedia/commons/thumb/9/96/Wheat_P1210892.jpg/500px-Wheat_P1210892.jpg",
       "call_name": "wheat",
       "water_needs": {
         "initial": 0.3,
@@ -109,6 +110,7 @@
     },
     {
       "name": "Đậu Nành",
+      "image_url":"https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Soybeanvarieties.jpg/330px-Soybeanvarieties.jpg",
       "call_name": "soybean",
       "water_needs": {
         "initial": 0.4,

@@ -48,7 +48,6 @@ def render_progress(value):
     return html
 
 
-@st.cache_data(ttl=60)
 def get_field_data(user_email: str):
     user_fields = db.get("fields", {"user_email": user_email})
     fields = user_fields if user_fields else []
@@ -338,42 +337,54 @@ def render_fields():
         display_status = field.get("status", "hydrated")
         display_water = field.get('today_water', 0)
         display_time = field.get('time_needed', 0)
-        display_progress = field.get('progress', 0)
+        
+        # Ưu tiên lấy progress từ DB
+        if field.get("progress") is not None:
+            display_progress = field.get("progress")
+        else:
+            display_progress = 0
 
         caption_text = "(Dữ liệu đã lưu)"
 
+        # Chỉ tính toán lại nều không có progress trong DB HOẶC muốn cập nhật các thông số khác theo thời gian thực
+        # Tuy nhiên yêu cầu là ưu tiên DB cho progress.
+        # Logic cũ đã ghi đè display_progress bằng tính toán live.
+        # Sửa lại: Chỉ tính toán live nếu field chưa có progress (None)
+        
         if live_stats and live_stats.get("avg_moisture") is not None:
             avg_moisture = live_stats["avg_moisture"]
             rain_intensity = live_stats["rain_intensity"]
+            
+            # Nếu DB chưa có progress, tính toán live
+            if field.get("progress") is None:
+                base_water = field.get('base_today_water', display_water)
+                base_time = field.get('base_time_needed', display_time)
 
-            base_water = field.get('base_today_water', display_water)
-            base_time = field.get('base_time_needed', display_time)
+                if rain_intensity > RAIN_THRESHOLD_MMH:
+                    display_status = "hydrated"
+                    display_progress = 100
+                    display_water = 0
+                    display_time = 0
+                elif avg_moisture < MOISTURE_MIN_THRESHOLD:
+                    display_status = "dehydrated"
+                    display_progress = 0
+                    display_water = base_water
+                    display_time = base_time
+                elif avg_moisture > MOISTURE_MAX_THRESHOLD:
+                    display_status = "hydrated"
+                    display_progress = 100
+                    display_water = 0
+                    display_time = 0
+                else:
+                    display_status = "hydrated"
+                    progress_range = MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD
+                    current_progress = avg_moisture - MOISTURE_MIN_THRESHOLD
+                    display_progress = int(
+                        (current_progress / progress_range) * 100)
 
-            if rain_intensity > RAIN_THRESHOLD_MMH:
-                display_status = "hydrated"
-                display_progress = 100
-                display_water = 0
-                display_time = 0
-            elif avg_moisture < MOISTURE_MIN_THRESHOLD:
-                display_status = "dehydrated"
-                display_progress = 0
-                display_water = base_water
-                display_time = base_time
-            elif avg_moisture > MOISTURE_MAX_THRESHOLD:
-                display_status = "hydrated"
-                display_progress = 100
-                display_water = 0
-                display_time = 0
-            else:
-                display_status = "hydrated"
-                progress_range = MOISTURE_MAX_THRESHOLD - MOISTURE_MIN_THRESHOLD
-                current_progress = avg_moisture - MOISTURE_MIN_THRESHOLD
-                display_progress = int(
-                    (current_progress / progress_range) * 100)
-
-                remaining_factor = 1.0 - (display_progress / 100.0)
-                display_water = round(base_water * remaining_factor, 1)
-                display_time = round(base_time * remaining_factor, 1)
+                    remaining_factor = 1.0 - (display_progress / 100.0)
+                    display_water = round(base_water * remaining_factor, 1)
+                    display_time = round(base_time * remaining_factor, 1)
 
             try:
                 ts = datetime.fromisoformat(
@@ -381,6 +392,9 @@ def render_fields():
                 caption_text = f"(Live: {avg_moisture:.1f}% @ {ts})"
             except BaseException:
                 caption_text = f"(Live: {avg_moisture:.1f}%)"
+        
+        # Force progress limits
+        display_progress = max(0, min(100, display_progress))
 
         status_colors = {
             'hydrated': {
