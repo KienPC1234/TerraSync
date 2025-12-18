@@ -415,7 +415,7 @@ def render_dashboard():
     sim_pressure = sim_pressure if sim_pressure is not None else 1000
 
     simulation_html = f"""
-    <iframe src="http://103.252.0.76:3000" id="my-simulation-iframe" width="100%" height="600px" style="border:none; border-radius: 10px;"></iframe>
+    <iframe src="https://iframe.fptoj.com" id="my-simulation-iframe" width="100%" height="600px" style="border:none; border-radius: 10px;"></iframe>
     <script>
         const iframe = document.getElementById('my-simulation-iframe');
         function sendData() {{

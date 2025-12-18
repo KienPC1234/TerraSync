@@ -6,17 +6,8 @@ import sys
 import os
 from datetime import datetime, timezone
 
-
+from utils_lib.mail_sender import send_email
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# --- ĐÃ THAY ĐỔI: Import send_email thay vì send_push_notification ---
-try:
-    from utils_lib.mail_sender import send_email
-except ImportError:
-    print(
-        "Chức năng email sẽ không hoạt động.")
-    # Tạo hàm giả để code không bị lỗi
-
 
 # --- Tải cấu hình từ appcfg.toml ---
 

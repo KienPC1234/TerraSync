@@ -165,7 +165,7 @@ def update_main_location():
 # --- GIAO DIỆN CHÍNH ---
 
 def render_add_field():
-    st.title("🌾 Thêm Vườn Mới (Sentinel-4P)")
+    st.title("🌾 Thêm Vườn Mới")
     
     defaults = {
         "lat": 20.450123, "lon": 106.325678,

@@ -8,7 +8,6 @@ import subprocess
 import atexit
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional, List
-from utils_lib.hdr_scanner import scan_hdr_files
 
 # --- Cấu hình hằng số ---
 BASE_DIR = Path(__file__).resolve().parent
@@ -258,8 +257,6 @@ def main():
     os.chdir(BASE_DIR)
     LOG_DIR.mkdir(exist_ok=True)
     
-    # Scan HDR files for frontend
-    scan_hdr_files()
 
     # Xoá log cũ
     try:

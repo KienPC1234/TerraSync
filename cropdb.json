@@ -137,6 +137,7 @@
     },
     {
       "name": "Khoai Tây",
+      "image_url":"https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Patates.jpg/500px-Patates.jpg",
       "call_name": "potato",
       "water_needs": {
         "initial": 0.5,
@@ -163,6 +164,7 @@
     },
     {
       "name": "Khoai Lang",
+      "image_url":"https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Ipomoea_batatas_006.JPG/500px-Ipomoea_batatas_006.JPG",
       "call_name": "sweet_potato",
       "water_needs": {
         "initial": 0.5,
@@ -190,6 +192,7 @@
     {
       "name": "Sắn",
       "call_name": "cassava",
+      "image_url":"https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Manihot_esculenta_001.jpg/500px-Manihot_esculenta_001.jpg",
       "water_needs": {
         "initial": 0.4,
         "development": 0.7,
@@ -215,6 +218,7 @@
     },
     {
       "name": "Mía",
+      "image_url":"https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Sugar_cane_in_Hainan_-_02.jpg/500px-Sugar_cane_in_Hainan_-_02.jpg",
       "call_name": "sugarcane",
       "water_needs": {
         "initial": 0.4,
@@ -241,6 +245,7 @@
     },
     {
       "name": "Bông",
+      "image_url":"https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/CottonPlant.JPG/330px-CottonPlant.JPG",
       "call_name": "cotton",
       "water_needs": {
         "initial": 0.4,
@@ -268,7 +273,7 @@
     {
       "name": "Lúa",
       "call_name": "rice",
-      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Oryza_sativa_-_K%C3%B6hler%E2%80%93s_Medizinal-Pflanzen-103.jpg/800px-Oryza_sativa_-_K%C3%B6hler%E2%80%93s_Medizinal-Pflanzen-103.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Mature_Rice_%28India%29_by_Augustus_Binu.jpg/500px-Mature_Rice_%28India%29_by_Augustus_Binu.jpg",
       "water_needs": {
         "initial": 1.2,
         "development": 1.2,

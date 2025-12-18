@@ -16,6 +16,7 @@ from pages.iot_management import render_iot_management
 from pages.ai_field_detection import render_ai_field_detection
 from pages.satellite_view import render_satellite_view
 from pages.add_field import render_add_field
+from pages.irrigation_control import render_irrigation_control
 from utils import (
     fetch_alerts,
     fetch_history,
@@ -219,9 +220,9 @@ with st.sidebar:
     selected = option_menu(
         "🌱 TerraSync",
         ["Dashboard", "My Fields", "Add Field", "My Schedule", "Ask CropNet AI",
-         "IoT Management", "AI Detection", "Satellite View", "Settings",
+         "IoT Management", "Irrigation Control", "AI Detection", "Satellite View", "Settings",
          "Help Center"],
-        icons=["house", "grid", "plus", "calendar", "chat", "wifi", "robot",
+        icons=["house", "grid", "plus", "calendar", "chat", "wifi", "toggles", "robot",
                "image", "gear", "question-circle"],
         default_index=0,
         menu_icon="psychiatry"
@@ -359,6 +360,9 @@ elif selected == "Settings":
 
 elif selected == "IoT Management":
     render_iot_management()
+
+elif selected == "Irrigation Control":
+    render_irrigation_control()
 
 elif selected == "AI Detection":
     render_ai_field_detection()
